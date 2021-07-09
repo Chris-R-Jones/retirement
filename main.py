@@ -1,17 +1,27 @@
 import json
-with open("Configuration.json","r") as f:
-    x = json.load(f)
-print ("dictionary loaded from JSON file" + str(x))
 
+KEY_YEAR = 'year'
 KEY_SAVINGS = 'savings'
 
 def calcSavings(current, previous):
-    if (previous == {}):
-        current[KEY_SAVINGS] = 5 #XXX load from config 
+    if (previous == None):
+        current[KEY_SAVINGS] = config[KEY_SAVINGS]
     else:
         current[KEY_SAVINGS] = previous[KEY_SAVINGS] + 1
-        
+
 def calcYear(current, previous):
     calcSavings(current, previous)
-    
-    
+
+#------------------ Main loop
+
+with open("Configuration.json","r") as f:
+    config = json.load(f)
+
+years = []
+previous = None
+for year in range(2021, 2071):
+    current = { KEY_YEAR : year }
+    calcYear( current, previous)
+    years.append(current)
+    previous = current
+
