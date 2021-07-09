@@ -47,6 +47,11 @@ for year in range(2021, 2071):
     years.append(current)
     previous = current
 
-print("YEAR SAVINGS")
+print("YEAR SAVINGS EXPENSES INCOME_HIS INCOME_HERS")
 for year in years:
-    print("%4d %5d" % (year[KEY_YEAR], year[KEY_SAVINGS]))
+    print("%4d %10.2f %10.2f %10.2f %10.2f" 
+         % (year[KEY_YEAR], year[KEY_SAVINGS], year[KEY_EXPENSES]
+           ,year[KEY_INCOME_WORK_HUSBAND]
+           ,year[KEY_INCOME_WORK_WIFE]
+           )
+         )
