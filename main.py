@@ -6,6 +6,8 @@ KEY_EXPENSES = 'expenses'
 KEY_INCOME_WORK_HUSBAND = 'incomeworkhusband'
 KEY_INCOME_WORK_WIFE = 'incomeworkwife'
 
+OUTPUT_KEYS = [KEY_YEAR, KEY_SAVINGS, KEY_EXPENSES, KEY_INCOME_WORK_HUSBAND
+              ,KEY_INCOME_WORK_WIFE]
 
 def calcSavings(current, previous):
     if (previous == None):
@@ -28,30 +30,44 @@ def calcIncomeWork(current, previous):
         current[KEY_INCOME_WORK_WIFE] = 50000 #XXX load from config
     else:
         current[KEY_INCOME_WORK_WIFE] = 0
-        
+
 def calcYear(current, previous):
     calcSavings(current, previous)
     calcExpenses(current, previous)
     calcIncomeWork(current, previous)
 
+def outputYearsHtml(years):
+    with open('Results.html', "w") as of:
+        of.write("<HTML><BODY><TABLE>\n")
+
+        of.write("<TR>")
+        for key in OUTPUT_KEYS:
+            of.write("<TH>"+key+"</TH>")
+        of.write("</TR>\n")
+
+        for year in years:
+            of.write("<TR>")
+            for key in OUTPUT_KEYS:
+                of.write("<TD>"+str(year[key])+"</TD>")
+            of.write("</TR>\n")
+
+        of.write("</TABLE></BODY></HTML>\n")
+
 #------------------ Main loop
 
-with open("Configuration.json","r") as f:
-    config = json.load(f)
+def main():
+    with open("Configuration.json","r") as f:
+        global config
+        config = json.load(f)
 
-years = []
-previous = None
-for year in range(2021, 2071):
-    current = { KEY_YEAR : year }
-    calcYear( current, previous)
-    years.append(current)
-    previous = current
+    years = []
+    previous = None
+    for year in range(2021, 2071):
+        current = {KEY_YEAR : year}
+        calcYear(current, previous)
+        years.append(current)
+        previous = current
 
-print("YEAR SAVINGS EXPENSES INCOME_HIS INCOME_HERS")
-for year in years:
-    print("%4d %10.2f %10.2f %10.2f %10.2f" 
-         % (year[KEY_YEAR], year[KEY_SAVINGS], year[KEY_EXPENSES]
-           ,year[KEY_INCOME_WORK_HUSBAND]
-           ,year[KEY_INCOME_WORK_WIFE]
-           )
-         )
+    outputYearsHtml(years)
+
+main()
