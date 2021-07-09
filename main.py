@@ -1,11 +1,15 @@
 import json
 
+CONFIG_MONTHLY_EXPENSES = 'monthlyexpenses'
+
 KEY_YEAR = 'year'
 KEY_SAVINGS = 'savings'
 KEY_EXPENSES = 'expenses'
 KEY_INCOME_WORK_HUSBAND = 'incomeworkhusband'
 KEY_INCOME_WORK_WIFE = 'incomeworkwife'
 
+def validateConfig():
+    assert config[CONFIG_MONTHLY_EXPENSES]
 
 def calcSavings(current, previous):
     if (previous == None):
@@ -15,7 +19,7 @@ def calcSavings(current, previous):
 
 def calcExpenses(current, previous):
     if (previous == None):
-        current[KEY_EXPENSES] = -1 #XXX load from config 
+        current[KEY_EXPENSES] = config[CONFIG_MONTHLY_EXPENSES]
     else:
         current[KEY_EXPENSES] = previous[KEY_EXPENSES] * 1.04 #XXX load inflation from config
 
@@ -38,6 +42,7 @@ def calcYear(current, previous):
 
 with open("Configuration.json","r") as f:
     config = json.load(f)
+validateConfig()
 
 years = []
 previous = None
