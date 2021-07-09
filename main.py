@@ -14,7 +14,7 @@ def calcSavings(current, previous):
         current[KEY_SAVINGS] = previous[KEY_SAVINGS] + 1
 
 def calcExpenses(current, previous):
-    if (previous == {}):
+    if (previous == None):
         current[KEY_EXPENSES] = -1 #XXX load from config 
     else:
         current[KEY_EXPENSES] = previous[KEY_EXPENSES] * 1.04 #XXX load inflation from config
