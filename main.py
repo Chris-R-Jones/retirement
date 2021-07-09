@@ -6,8 +6,12 @@ KEY_EXPENSES = 'expenses'
 KEY_INCOME_WORK_HUSBAND = 'incomeworkhusband'
 KEY_INCOME_WORK_WIFE = 'incomeworkwife'
 
-OUTPUT_KEYS = [KEY_YEAR, KEY_SAVINGS, KEY_EXPENSES, KEY_INCOME_WORK_HUSBAND
-              ,KEY_INCOME_WORK_WIFE]
+OUTPUT_KEYS = [(KEY_YEAR, "%d")
+               , (KEY_SAVINGS, "%.2f")
+               , (KEY_EXPENSES, "%.2f")
+               , (KEY_INCOME_WORK_HUSBAND, "%.2f")
+               , (KEY_INCOME_WORK_WIFE, "%.2f")
+              ]
 
 def calcSavings(current, previous):
     if (previous == None):
@@ -41,14 +45,14 @@ def outputYearsHtml(years):
         of.write("<HTML><BODY><TABLE>\n")
 
         of.write("<TR>")
-        for key in OUTPUT_KEYS:
-            of.write("<TH>"+key+"</TH>")
+        for keytup in OUTPUT_KEYS:
+            of.write("<TH>"+keytup[0]+"</TH>")
         of.write("</TR>\n")
 
         for year in years:
             of.write("<TR>")
-            for key in OUTPUT_KEYS:
-                of.write("<TD>"+str(year[key])+"</TD>")
+            for keytup in OUTPUT_KEYS:
+                of.write("<TD>"+(keytup[1] % year[keytup[0]])+"</TD>")
             of.write("</TR>\n")
 
         of.write("</TABLE></BODY></HTML>\n")
