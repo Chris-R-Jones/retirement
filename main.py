@@ -46,3 +46,7 @@ for year in range(2021, 2071):
     calcYear( current, previous)
     years.append(current)
     previous = current
+
+print("YEAR SAVINGS")
+for year in years:
+    print("%4d %5d" % (year[KEY_YEAR], year[KEY_SAVINGS]))
