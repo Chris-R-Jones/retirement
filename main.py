@@ -1,6 +1,8 @@
 import json
 
-CONFIG_MONTHLY_EXPENSES = 'monthlyexpenses'
+CONFIG_SAVINGS = 'savings' # savings at start year
+CONFIG_EXPENSES = 'expenses' # monthly expenses during start year
+CONFIG_INFLATION = 'inflation' # annual inflation percentage
 
 KEY_YEAR = 'year'
 KEY_SAVINGS = 'savings'
@@ -9,19 +11,21 @@ KEY_INCOME_WORK_HUSBAND = 'incomeworkhusband'
 KEY_INCOME_WORK_WIFE = 'incomeworkwife'
 
 def validateConfig():
-    assert config[CONFIG_MONTHLY_EXPENSES]
+    assert config[CONFIG_SAVINGS] >= 0
+    assert config[CONFIG_EXPENSES] >= 0
+    assert config[CONFIG_INFLATION] >= 0 and config[CONFIG_INFLATION] <= 1
 
 def calcSavings(current, previous):
     if (previous == None):
-        current[KEY_SAVINGS] = config[KEY_SAVINGS]
+        current[KEY_SAVINGS] = config[CONFIG_SAVINGS]
     else:
         current[KEY_SAVINGS] = previous[KEY_SAVINGS] + 1
 
 def calcExpenses(current, previous):
     if (previous == None):
-        current[KEY_EXPENSES] = config[CONFIG_MONTHLY_EXPENSES]
+        current[KEY_EXPENSES] = config[CONFIG_EXPENSES]
     else:
-        current[KEY_EXPENSES] = previous[KEY_EXPENSES] * 1.04 #XXX load inflation from config
+        current[KEY_EXPENSES] = previous[KEY_EXPENSES] * (1 + config[CONFIG_INFLATION])
 
 def calcIncomeWork(current, previous):
     if current[KEY_YEAR] >= 2021 and current[KEY_YEAR] <= 2023: #XXX load from and to husband employment from config
