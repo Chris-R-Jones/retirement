@@ -32,7 +32,24 @@ OUTPUT_KEYS = [(KEY_YEAR, "%d")
 def validateConfig():
     assert config[CONFIG_EXPENSES] >= 0
     assert config[CONFIG_INFLATION] >= 0 and config[CONFIG_INFLATION] <= 1
+
     assert config[CONFIG_ACCTS] is not None and len(config[CONFIG_ACCTS]) > 0
+    for acctName in config[CONFIG_ACCTS]:
+        acct = config[CONFIG_ACCTS][acctName]
+        assert acct[CONFIG_ACCT_BALANCE] is not None
+        assert acct[CONFIG_ACCT_BALANCE] >= 0
+        assert acct[CONFIG_ACCT_RETURN_RATE] is not None
+        assert acct[CONFIG_ACCT_RETURN_RATE] >= 0
+        assert (CONFIG_ACCT_TARGET_BALANCE not in acct
+                or acct[CONFIG_ACCT_TARGET_BALANCE] > 0
+               )
+
+    assert (config[CONFIG_INCOME_SOURCES] is not None
+            and len(config[CONFIG_INCOME_SOURCES]) > 0
+           )
+    for income in config[CONFIG_INCOME_SOURCES]:
+        assert income[CONFIG_INCOME_NAME] is not None
+        assert income[CONFIG_INCOME_AMOUNT] is not None
 
 def calcReturns(current, previous):
     current[CONFIG_ACCTS] = {}
@@ -67,6 +84,7 @@ def calcIncome(current, previous):
                 and current[KEY_YEAR] <= incomeSource[CONFIG_INCOME_END_YEAR]
            ):
             current[CONFIG_INCOME_TOTAL] += incomeSource[CONFIG_INCOME_AMOUNT]
+    # TBD -- need to adjust the above for inflation
 
 def calcYear(current, previous):
     calcReturns(current, previous)
