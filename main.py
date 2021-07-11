@@ -1,3 +1,6 @@
+""" Theiding-Jones Retirement calculator
+    Mostly to prove we could have retired several years ago
+"""
 import json
 
 # Configuration keys
@@ -29,13 +32,14 @@ OUTPUT_KEYS = [(KEY_YEAR, "%d")
                , (CONFIG_INCOME_TOTAL, "%.2f")
               ]
 
-def validateConfig():
+def validate_config():
+    """ Reviews configuration settings for correctness """
     assert config[CONFIG_EXPENSES] >= 0
     assert config[CONFIG_INFLATION] >= 0 and config[CONFIG_INFLATION] <= 1
 
     assert config[CONFIG_ACCTS] is not None and len(config[CONFIG_ACCTS]) > 0
-    for acctName in config[CONFIG_ACCTS]:
-        acct = config[CONFIG_ACCTS][acctName]
+    for acct_name in config[CONFIG_ACCTS]:
+        acct = config[CONFIG_ACCTS][acct_name]
         assert acct[CONFIG_ACCT_BALANCE] is not None
         assert acct[CONFIG_ACCT_BALANCE] >= 0
         assert acct[CONFIG_ACCT_RETURN_RATE] is not None
@@ -51,47 +55,58 @@ def validateConfig():
         assert income[CONFIG_INCOME_NAME] is not None
         assert income[CONFIG_INCOME_AMOUNT] is not None
 
-def calcReturns(current, previous):
+def load_config():
+    """Loads user preferences from json configuration file"""
+    with open("Configuration.json", "r") as infile:
+        global config
+        config = json.load(infile)
+    validate_config()
+
+def calc_returns(current, previous):
+    """Calculates annual gains on invetment accounts, adjusting balances"""
     current[CONFIG_ACCTS] = {}
-    for acctName in config[CONFIG_ACCTS]:
-        cfgAcct = config[CONFIG_ACCTS][acctName]
+    for acct_name in config[CONFIG_ACCTS]:
+        cfgacct = config[CONFIG_ACCTS][acct_name]
         if previous is None:
-            newAcct = cfgAcct
-            newAcct[CONFIG_ACCT_BALANCE] = ( cfgAcct[CONFIG_ACCT_BALANCE]
-                                             * (1.0 + cfgAcct[CONFIG_ACCT_RETURN_RATE])
+            newacct = cfgacct
+            newacct[CONFIG_ACCT_BALANCE] = (cfgacct[CONFIG_ACCT_BALANCE]
+                                            * (1.0 + cfgacct[CONFIG_ACCT_RETURN_RATE])
                                            )
         else:
-            prvAcct = previous[CONFIG_ACCTS][acctName]
-            newAcct = prvAcct.copy()
-            newAcct[CONFIG_ACCT_BALANCE] = ( prvAcct[CONFIG_ACCT_BALANCE] 
-                                             * (1.0 + cfgAcct[CONFIG_ACCT_RETURN_RATE])
+            prvacct = previous[CONFIG_ACCTS][acct_name]
+            newacct = prvacct.copy()
+            newacct[CONFIG_ACCT_BALANCE] = (prvacct[CONFIG_ACCT_BALANCE]
+                                            * (1.0 + cfgacct[CONFIG_ACCT_RETURN_RATE])
                                            )
-        current[CONFIG_ACCTS][acctName] = newAcct
+        current[CONFIG_ACCTS][acct_name] = newacct
 
-def calcExpenses(current, previous):
-    if (previous == None):
+def calc_expenses(current, previous):
+    """ Calculates yearly expenses, based on user configuration """
+    if previous is None:
         current[KEY_EXPENSES] = config[CONFIG_EXPENSES]
     else:
         current[KEY_EXPENSES] = previous[KEY_EXPENSES] * (1 + config[CONFIG_INFLATION])
 
-def calcIncome(current, previous):
+def calc_income(current):
+    """ Calculates yearly income from configured sources """
     current[CONFIG_INCOME_TOTAL] = 0
 
-    for incomeSource in config[CONFIG_INCOME_SOURCES]:
-        if (CONFIG_INCOME_START_YEAR in incomeSource
-                and CONFIG_INCOME_END_YEAR in incomeSource
-                and current[KEY_YEAR] >= incomeSource[CONFIG_INCOME_START_YEAR]
-                and current[KEY_YEAR] <= incomeSource[CONFIG_INCOME_END_YEAR]
+    for source in config[CONFIG_INCOME_SOURCES]:
+        if (CONFIG_INCOME_START_YEAR in source
+                and CONFIG_INCOME_END_YEAR in source
+                and current[KEY_YEAR] >= source[CONFIG_INCOME_START_YEAR]
+                and current[KEY_YEAR] <= source[CONFIG_INCOME_END_YEAR]
            ):
-            current[CONFIG_INCOME_TOTAL] += incomeSource[CONFIG_INCOME_AMOUNT]
+            current[CONFIG_INCOME_TOTAL] += source[CONFIG_INCOME_AMOUNT]
     # TBD -- need to adjust the above for inflation
 
-def calcBalanceAdjust(current, previous):
+def calc_balance_adjust(current):
+    """ Adjusts balances of savings account to add yearly income
+        and remove yearly expenses.
 
-    # TBD: to not hardcode "savings"...
+        TBD: to not hardcode "savings"...
+    """
 
-    # Adjusts balances of savings account to add yearly income
-    # and remove yearly expenses.
     savings = current[CONFIG_ACCTS]["savings"]
     savings[CONFIG_ACCT_BALANCE] += current[CONFIG_INCOME_TOTAL]
     savings[CONFIG_ACCT_BALANCE] -= current[KEY_EXPENSES]
@@ -100,10 +115,10 @@ def calcBalanceAdjust(current, previous):
 
     # Draw/Push funds from other accounts to match savings target.
     # TBD to add priorities or similar to control ordering
-    for acctName in current[CONFIG_ACCTS]:
-        if acctName == "savings" or deficit == 0:
+    for acct_name in current[CONFIG_ACCTS]:
+        if acct_name == "savings" or deficit == 0:
             continue
-        acct = current[CONFIG_ACCTS][acctName]
+        acct = current[CONFIG_ACCTS][acct_name]
 
         if deficit < 0:
             acct[CONFIG_ACCT_BALANCE] += -deficit
@@ -116,58 +131,60 @@ def calcBalanceAdjust(current, previous):
             deficit -= transfer
 
 
-def calcYear(current, previous):
-    calcReturns(current, previous)
-    calcExpenses(current, previous)
-    calcIncome(current, previous)
-    calcBalanceAdjust(current,previous)
+def calc_year(current, previous):
+    """ Calculates the next year's results, given global configuration
+        and the previous year
+    """
+    calc_returns(current, previous)
+    calc_expenses(current, previous)
+    calc_income(current)
+    calc_balance_adjust(current)
 
-def outputYearsHtml(years):
-    with open('Results.html', "w") as of:
-        of.write("<HTML><BODY><TABLE>\n")
+def output_years_html(years):
+    """ Generates HTML output summarizing the key calculations for each year """
+    with open('Results.html', "w") as outf:
+        outf.write("<HTML><BODY><TABLE>\n")
 
-        of.write("<TR>")
+        outf.write("<TR>")
         for keytup in OUTPUT_KEYS:
-            of.write("<TH>"+keytup[0]+"</TH>")
-        for acctName in config[CONFIG_ACCTS]:
-            of.write("<TH>"+acctName+"</TH>")
-        of.write("</TR>\n")
+            outf.write("<TH>"+keytup[0]+"</TH>")
+        for acct_name in config[CONFIG_ACCTS]:
+            outf.write("<TH>"+acct_name+"</TH>")
+        outf.write("</TR>\n")
 
         for year in years:
-            of.write("<TR>")
+            outf.write("<TR>")
             for keytup in OUTPUT_KEYS:
-                of.write("<TD>"+(keytup[1] % year[keytup[0]])+"</TD>")
+                outf.write("<TD>"+(keytup[1] % year[keytup[0]])+"</TD>")
 
-            for acctName in config[CONFIG_ACCTS]:
-                acct = year[CONFIG_ACCTS][acctName]
-                of.write("<TD>"
-                         +"%.2f" % acct[CONFIG_ACCT_BALANCE]
-                         +"</TD>"
-                        )
+            for acct_name in config[CONFIG_ACCTS]:
+                acct = year[CONFIG_ACCTS][acct_name]
+                outf.write("<TD>"
+                           +"%.2f" % acct[CONFIG_ACCT_BALANCE]
+                           +"</TD>"
+                          )
 
-            of.write("</TR>\n")
+            outf.write("</TR>\n")
 
-        of.write("</TABLE></BODY></HTML>\n")
+        outf.write("</TABLE></BODY></HTML>\n")
 
 #------------------ Main loop
 
 def main():
-    with open("Configuration.json","r") as f:
-        global config
-        config = json.load(f)
-    validateConfig()
+    """ Program main entry point """
+    load_config()
 
     years = []
     previous = None
     for year in range(2021, 2071):
         current = {KEY_YEAR : year}
-        calcYear(current, previous)
+        calc_year(current, previous)
         years.append(current)
         previous = current
         if current[CONFIG_ACCTS]["savings"][CONFIG_ACCT_BALANCE] < 0:
-            print('Destitute on year '+str(year))
+            print 'Destitute on year '+str(year)
             break
 
-    outputYearsHtml(years)
+    output_years_html(years)
 
 main()
