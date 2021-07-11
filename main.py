@@ -1,32 +1,55 @@
 import json
 
-CONFIG_SAVINGS = 'savings' # savings at start year
+# Configuration keys
 CONFIG_EXPENSES = 'expenses' # monthly expenses during start year
 CONFIG_INFLATION = 'inflation' # annual inflation percentage
+CONFIG_EXPENSES = 'expenses'
 
+CONFIG_INCOME_SOURCES = 'incomeSources'
+CONFIG_INCOME_NAME = 'name'
+CONFIG_INCOME_AMOUNT = 'amount'
+CONFIG_INCOME_START_YEAR = 'startYear'
+CONFIG_INCOME_END_YEAR = 'endYear'
+CONFIG_INCOME_START_AGE = 'startAge'
+CONFIG_INCOME_END_AGE = 'endAge'
+
+CONFIG_ACCTS = 'accounts'
+CONFIG_ACCT_NAME = 'name'
+CONFIG_ACCT_BALANCE = 'balance'
+CONFIG_ACCT_TARGET_BALANCE = 'targetBalance'
+CONFIG_ACCT_RETURN_RATE = 'returnRate'
+
+# Output-only keys
 KEY_YEAR = 'year'
-KEY_SAVINGS = 'savings'
+CONFIG_INCOME_TOTAL = 'incomeTotal'
 KEY_EXPENSES = 'expenses'
-KEY_INCOME_WORK_HUSBAND = 'incomeworkhusband'
-KEY_INCOME_WORK_WIFE = 'incomeworkwife'
 
 OUTPUT_KEYS = [(KEY_YEAR, "%d")
-               , (KEY_SAVINGS, "%.2f")
                , (KEY_EXPENSES, "%.2f")
-               , (KEY_INCOME_WORK_HUSBAND, "%.2f")
-               , (KEY_INCOME_WORK_WIFE, "%.2f")
+               , (CONFIG_INCOME_TOTAL, "%.2f")
               ]
 
 def validateConfig():
-    assert config[CONFIG_SAVINGS] >= 0
     assert config[CONFIG_EXPENSES] >= 0
     assert config[CONFIG_INFLATION] >= 0 and config[CONFIG_INFLATION] <= 1
+    assert config[CONFIG_ACCTS] is not None and len(config[CONFIG_ACCTS]) > 0
 
-def calcSavings(current, previous):
-    if (previous == None):
-        current[KEY_SAVINGS] = config[CONFIG_SAVINGS]
-    else:
-        current[KEY_SAVINGS] = previous[KEY_SAVINGS] + 1
+def calcReturns(current, previous):
+    current[CONFIG_ACCTS] = {}
+    for acctName in config[CONFIG_ACCTS]:
+        cfgAcct = config[CONFIG_ACCTS][acctName]
+        if previous is None:
+            newAcct = cfgAcct
+            newAcct[CONFIG_ACCT_BALANCE] = ( cfgAcct[CONFIG_ACCT_BALANCE]
+                                             * (1.0 + cfgAcct[CONFIG_ACCT_RETURN_RATE])
+                                           )
+        else:
+            prvAcct = previous[CONFIG_ACCTS][acctName]
+            newAcct = prvAcct
+            newAcct[CONFIG_ACCT_BALANCE] = ( prvAcct[CONFIG_ACCT_BALANCE] 
+                                             * (1.0 + cfgAcct[CONFIG_ACCT_RETURN_RATE])
+                                           )
+        current[CONFIG_ACCTS][acctName] = newAcct
 
 def calcExpenses(current, previous):
     if (previous == None):
@@ -34,20 +57,21 @@ def calcExpenses(current, previous):
     else:
         current[KEY_EXPENSES] = previous[KEY_EXPENSES] * (1 + config[CONFIG_INFLATION])
 
-def calcIncomeWork(current, previous):
-    if current[KEY_YEAR] >= 2021 and current[KEY_YEAR] <= 2023: #XXX load from and to husband employment from config
-        current[KEY_INCOME_WORK_HUSBAND] = 100000 #XXX load from config
-    else:
-        current[KEY_INCOME_WORK_HUSBAND] = 0
-    if current[KEY_YEAR] >= 2021 and current[KEY_YEAR] <= 2023: #XXX load from and to wife employment from config
-        current[KEY_INCOME_WORK_WIFE] = 50000 #XXX load from config
-    else:
-        current[KEY_INCOME_WORK_WIFE] = 0
+def calcIncome(current, previous):
+    current[CONFIG_INCOME_TOTAL] = 0
+
+    for incomeSource in config[CONFIG_INCOME_SOURCES]:
+        if (CONFIG_INCOME_START_YEAR in incomeSource
+                and CONFIG_INCOME_END_YEAR in incomeSource
+                and current[KEY_YEAR] >= incomeSource[CONFIG_INCOME_START_YEAR]
+                and current[KEY_YEAR] <= incomeSource[CONFIG_INCOME_END_YEAR]
+           ):
+            current[CONFIG_INCOME_TOTAL] += incomeSource[CONFIG_INCOME_AMOUNT]
 
 def calcYear(current, previous):
-    calcSavings(current, previous)
+    calcReturns(current, previous)
     calcExpenses(current, previous)
-    calcIncomeWork(current, previous)
+    calcIncome(current, previous)
 
 def outputYearsHtml(years):
     with open('Results.html', "w") as of:
@@ -56,12 +80,22 @@ def outputYearsHtml(years):
         of.write("<TR>")
         for keytup in OUTPUT_KEYS:
             of.write("<TH>"+keytup[0]+"</TH>")
+        for acctName in config[CONFIG_ACCTS]:
+            of.write("<TH>"+acctName+"</TH>")
         of.write("</TR>\n")
 
         for year in years:
             of.write("<TR>")
             for keytup in OUTPUT_KEYS:
                 of.write("<TD>"+(keytup[1] % year[keytup[0]])+"</TD>")
+
+            for acctName in config[CONFIG_ACCTS]:
+                acct = year[CONFIG_ACCTS][acctName]
+                of.write("<TD>"
+                         +"%.2f" % acct[CONFIG_ACCT_BALANCE]
+                         +"</TD>"
+                        )
+
             of.write("</TR>\n")
 
         of.write("</TABLE></BODY></HTML>\n")
