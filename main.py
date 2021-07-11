@@ -10,6 +10,13 @@ KEY_EXPENSES = 'expenses'
 KEY_INCOME_WORK_HUSBAND = 'incomeworkhusband'
 KEY_INCOME_WORK_WIFE = 'incomeworkwife'
 
+OUTPUT_KEYS = [(KEY_YEAR, "%d")
+               , (KEY_SAVINGS, "%.2f")
+               , (KEY_EXPENSES, "%.2f")
+               , (KEY_INCOME_WORK_HUSBAND, "%.2f")
+               , (KEY_INCOME_WORK_WIFE, "%.2f")
+              ]
+
 def validateConfig():
     assert config[CONFIG_SAVINGS] >= 0
     assert config[CONFIG_EXPENSES] >= 0
@@ -36,31 +43,45 @@ def calcIncomeWork(current, previous):
         current[KEY_INCOME_WORK_WIFE] = 50000 #XXX load from config
     else:
         current[KEY_INCOME_WORK_WIFE] = 0
-        
+
 def calcYear(current, previous):
     calcSavings(current, previous)
     calcExpenses(current, previous)
     calcIncomeWork(current, previous)
 
+def outputYearsHtml(years):
+    with open('Results.html', "w") as of:
+        of.write("<HTML><BODY><TABLE>\n")
+
+        of.write("<TR>")
+        for keytup in OUTPUT_KEYS:
+            of.write("<TH>"+keytup[0]+"</TH>")
+        of.write("</TR>\n")
+
+        for year in years:
+            of.write("<TR>")
+            for keytup in OUTPUT_KEYS:
+                of.write("<TD>"+(keytup[1] % year[keytup[0]])+"</TD>")
+            of.write("</TR>\n")
+
+        of.write("</TABLE></BODY></HTML>\n")
+
 #------------------ Main loop
 
-with open("Configuration.json","r") as f:
-    config = json.load(f)
-validateConfig()
+def main():
+    with open("Configuration.json","r") as f:
+        global config
+        config = json.load(f)
+    validateConfig()
 
-years = []
-previous = None
-for year in range(2021, 2071):
-    current = { KEY_YEAR : year }
-    calcYear( current, previous)
-    years.append(current)
-    previous = current
+    years = []
+    previous = None
+    for year in range(2021, 2071):
+        current = {KEY_YEAR : year}
+        calcYear(current, previous)
+        years.append(current)
+        previous = current
 
-print("YEAR SAVINGS EXPENSES INCOME_HIS INCOME_HERS")
-for year in years:
-    print("%4d %10.2f %10.2f %10.2f %10.2f" 
-         % (year[KEY_YEAR], year[KEY_SAVINGS], year[KEY_EXPENSES]
-           ,year[KEY_INCOME_WORK_HUSBAND]
-           ,year[KEY_INCOME_WORK_WIFE]
-           )
-         )
+    outputYearsHtml(years)
+
+main()
