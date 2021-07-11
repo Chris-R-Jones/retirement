@@ -86,10 +86,41 @@ def calcIncome(current, previous):
             current[CONFIG_INCOME_TOTAL] += incomeSource[CONFIG_INCOME_AMOUNT]
     # TBD -- need to adjust the above for inflation
 
+def calcBalanceAdjust(current, previous):
+
+    # TBD: to not hardcode "savings"...
+
+    # Adjusts balances of savings account to add yearly income
+    # and remove yearly expenses.
+    savings = current[CONFIG_ACCTS]["savings"]
+    savings[CONFIG_ACCT_BALANCE] += current[CONFIG_INCOME_TOTAL]
+    savings[CONFIG_ACCT_BALANCE] -= current[KEY_EXPENSES]
+
+    deficit = savings[CONFIG_ACCT_TARGET_BALANCE] - savings[CONFIG_ACCT_BALANCE]
+
+    # Draw/Push funds from other accounts to match savings target.
+    # TBD to add priorities or similar to control ordering
+    for acctName in current[CONFIG_ACCTS]:
+        if acctName == "savings" or deficit == 0:
+            continue
+        acct = current[CONFIG_ACCTS][acctName]
+
+        if deficit < 0:
+            acct[CONFIG_ACCT_BALANCE] += -deficit
+            savings[CONFIG_ACCT_BALANCE] += deficit
+            deficit = 0
+        elif deficit > 0 and acct[CONFIG_ACCT_BALANCE] > 0:
+            transfer = min(deficit, acct[CONFIG_ACCT_BALANCE])
+            savings[CONFIG_ACCT_BALANCE] += transfer
+            acct[CONFIG_ACCT_BALANCE] -= transfer
+            deficit -= transfer
+
+
 def calcYear(current, previous):
     calcReturns(current, previous)
     calcExpenses(current, previous)
     calcIncome(current, previous)
+    calcBalanceAdjust(current,previous)
 
 def outputYearsHtml(years):
     with open('Results.html', "w") as of:
@@ -133,6 +164,9 @@ def main():
         calcYear(current, previous)
         years.append(current)
         previous = current
+        if current[CONFIG_ACCTS]["savings"][CONFIG_ACCT_BALANCE] < 0:
+            print('Destitute on year '+str(year))
+            break
 
     outputYearsHtml(years)
 

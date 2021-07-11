@@ -1,11 +1,11 @@
 {
-    "expenses": 1000,
+    "expenses": 50000,
 	"inflation": 0.04,
     "accounts": { "savings" : { "balance": 10000, "targetBalance": 10000, "returnRate": 0.00 }
                 , "investment" : { "balance": 10000, "returnRate": 0.05}
                 },
-    "incomeSources": [ { "name": "husband", "amount": 10000, "startYear": 2021, "endYear": 2023 }
-                     , { "name": "wife", "amount": 10000 , "startYear": 2023, "endYear": 2023 }
+    "incomeSources": [ { "name": "husband", "amount": 100000, "startYear": 2021, "endYear": 2025 }
+                     , { "name": "wife", "amount": 100000 , "startYear": 2023, "endYear": 2025 }
                      , { "name": "socialSecurity", "amount" : 10000, "startAge" : 67 }
                      ]
 }
