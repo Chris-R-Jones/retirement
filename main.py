@@ -45,7 +45,7 @@ def calcReturns(current, previous):
                                            )
         else:
             prvAcct = previous[CONFIG_ACCTS][acctName]
-            newAcct = prvAcct
+            newAcct = prvAcct.copy()
             newAcct[CONFIG_ACCT_BALANCE] = ( prvAcct[CONFIG_ACCT_BALANCE] 
                                              * (1.0 + cfgAcct[CONFIG_ACCT_RETURN_RATE])
                                            )
