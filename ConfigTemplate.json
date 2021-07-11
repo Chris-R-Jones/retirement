@@ -1,5 +1,4 @@
 {
-    "savings": 100000,
     "expenses": 1000,
 	"inflation": 0.04,
     "accounts": { "savings" : { "balance": 10000, "targetBalance": 10000, "returnRate": 0.00 }
