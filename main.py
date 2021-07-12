@@ -3,13 +3,10 @@ import json
 # Configuration keys
 CONFIG_EXPENSES = 'expenses' # monthly expenses during start year
 CONFIG_INFLATION = 'inflation' # annual inflation percentage
-CONFIG_EXPENSES = 'expenses'
 
 CONFIG_INCOME_SOURCES = 'incomeSources'
 CONFIG_INCOME_NAME = 'name'
 CONFIG_INCOME_AMOUNT = 'amount'
-CONFIG_INCOME_START_YEAR = 'startYear'
-CONFIG_INCOME_END_YEAR = 'endYear'
 CONFIG_INCOME_START_AGE = 'startAge'
 CONFIG_INCOME_END_AGE = 'endAge'
 
@@ -18,6 +15,9 @@ CONFIG_ACCT_NAME = 'name'
 CONFIG_ACCT_BALANCE = 'balance'
 CONFIG_ACCT_TARGET_BALANCE = 'targetBalance'
 CONFIG_ACCT_RETURN_RATE = 'returnRate'
+
+CONFIG_START_YEAR = 'startYear'
+CONFIG_END_YEAR = 'endYear'
 
 # Output-only keys
 KEY_YEAR = 'year'
@@ -28,6 +28,8 @@ OUTPUT_KEYS = [(KEY_YEAR, "%d")
                , (KEY_EXPENSES, "%.2f")
                , (CONFIG_INCOME_TOTAL, "%.2f")
               ]
+
+#------------------ Config
 
 def validateConfig():
     assert config[CONFIG_EXPENSES] >= 0
@@ -50,6 +52,15 @@ def validateConfig():
     for income in config[CONFIG_INCOME_SOURCES]:
         assert income[CONFIG_INCOME_NAME] is not None
         assert income[CONFIG_INCOME_AMOUNT] is not None
+
+#------------------ Util
+
+def filterYear(year, config):
+    return ( (not (CONFIG_START_YEAR in config) or config[CONFIG_START_YEAR] <= year) and
+             (not (CONFIG_END_YEAR in config) or config[CONFIG_END_YEAR] >= year)
+           )
+           
+#------------------ Calc functions
 
 def calcReturns(current, previous):
     current[CONFIG_ACCTS] = {}
@@ -78,11 +89,7 @@ def calcIncome(current, previous):
     current[CONFIG_INCOME_TOTAL] = 0
 
     for incomeSource in config[CONFIG_INCOME_SOURCES]:
-        if (CONFIG_INCOME_START_YEAR in incomeSource
-                and CONFIG_INCOME_END_YEAR in incomeSource
-                and current[KEY_YEAR] >= incomeSource[CONFIG_INCOME_START_YEAR]
-                and current[KEY_YEAR] <= incomeSource[CONFIG_INCOME_END_YEAR]
-           ):
+        if filterYear(current[KEY_YEAR], incomeSource):
             current[CONFIG_INCOME_TOTAL] += incomeSource[CONFIG_INCOME_AMOUNT]
     # TBD -- need to adjust the above for inflation
 
@@ -121,6 +128,8 @@ def calcYear(current, previous):
     calcExpenses(current, previous)
     calcIncome(current, previous)
     calcBalanceAdjust(current,previous)
+
+#------------------ Output
 
 def outputYearsHtml(years):
     with open('Results.html', "w") as of:
