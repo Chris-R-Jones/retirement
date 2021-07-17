@@ -7,30 +7,27 @@ import json
 CONFIG_EXPENSES = 'expenses' # monthly expenses during start year
 CONFIG_INFLATION = 'inflation' # annual inflation percentage
 
+CONFIG_START_YEAR = 'startYear'
+CONFIG_END_YEAR = 'endYear'
+CONFIG_NAME = 'name'
+
 CONFIG_INCOME_SOURCES = 'incomeSources'
-CONFIG_INCOME_NAME = 'name'
+CONFIG_INCOME_NAME = CONFIG_NAME # TBD needed at all?
 CONFIG_INCOME_AMOUNT = 'amount'
 CONFIG_INCOME_START_AGE = 'startAge'
 CONFIG_INCOME_END_AGE = 'endAge'
 
 CONFIG_ACCTS = 'accounts'
-CONFIG_ACCT_NAME = 'name'
+CONFIG_ACCT_NAME = CONFIG_NAME # TBD needed at all?
 CONFIG_ACCT_BALANCE = 'balance'
 CONFIG_ACCT_TARGET_BALANCE = 'targetBalance'
 CONFIG_ACCT_RETURN_RATE = 'returnRate'
 
-CONFIG_START_YEAR = 'startYear'
-CONFIG_END_YEAR = 'endYear'
 
 # Output-only keys
 KEY_YEAR = 'year'
 CONFIG_INCOME_TOTAL = 'incomeTotal'
 KEY_EXPENSES = 'expenses'
-
-OUTPUT_KEYS = [(KEY_YEAR, "%d")
-               , (KEY_EXPENSES, "%.2f")
-               , (CONFIG_INCOME_TOTAL, "%.2f")
-              ]
 
 #------------------ Config
 
@@ -57,16 +54,6 @@ def validate_config():
         assert income[CONFIG_INCOME_NAME] is not None
         assert income[CONFIG_INCOME_AMOUNT] is not None
 
-#------------------ Util
-
-def filter_year(year, src):
-    """Checks specified dictionary for CONFIG_START_YEAR / END_YEAR keys """
-    return ((CONFIG_START_YEAR not in src or src[CONFIG_START_YEAR] <= year) and
-            (CONFIG_END_YEAR not in src or src[CONFIG_END_YEAR] >= year)
-           )
-
-#------------------ Calc functions
-
 def load_config():
     """Loads user preferences from json configuration file"""
     with open("Configuration.json", "r") as infile:
@@ -74,8 +61,50 @@ def load_config():
         config = json.load(infile)
     validate_config()
 
+#------------------ Util
+
+def filter_year(year, src):
+    """ Checks specified dictionary for CONFIG_START_YEAR / END_YEAR keys """
+    return ((CONFIG_START_YEAR not in src or src[CONFIG_START_YEAR] <= year) and
+            (CONFIG_END_YEAR not in src or src[CONFIG_END_YEAR] >= year)
+           )
+
+def create_key(category, item):
+    """ Creates a key by combining a config category and the name of an item for that category """
+    return category + '/' + item[CONFIG_NAME]
+
+#------------------ Expenses
+
+def calc_expenses(current, previous):
+    """ Calculates yearly expenses, based on user configuration """
+    if previous is None:
+        current[KEY_EXPENSES] = config[CONFIG_EXPENSES]
+    else:
+        current[KEY_EXPENSES] = previous[KEY_EXPENSES] * (1 + config[CONFIG_INFLATION])
+
+#------------------ Income
+
+def calc_income(current, previous):
+    """ Calculates all types of yearly income """
+    current[CONFIG_INCOME_TOTAL] = 0
+
+    calc_income_sources(current)
+    calc_returns(current, previous)
+
+def calc_income_sources(current):
+    """ Calculates yearly income from configured sources """
+
+    for source in config[CONFIG_INCOME_SOURCES]:
+        key = create_key(CONFIG_INCOME_SOURCES, source)
+        current[key] = 0
+        if filter_year(current[KEY_YEAR], source):
+            current[key] = source[CONFIG_INCOME_AMOUNT]
+        current[CONFIG_INCOME_TOTAL] += current[key]
+    # TBD -- need to adjust the above for inflation
+    # TBD Mark: income is what it is regardless of inflation, but we can add support for raises)
+
 def calc_returns(current, previous):
-    """Calculates annual gains on invetment accounts, adjusting balances"""
+    """Calculates annual gains on investment accounts, adjusting balances"""
     current[CONFIG_ACCTS] = {}
     for acct_name in config[CONFIG_ACCTS]:
         cfgacct = config[CONFIG_ACCTS][acct_name]
@@ -92,21 +121,7 @@ def calc_returns(current, previous):
                                            )
         current[CONFIG_ACCTS][acct_name] = newacct
 
-def calc_expenses(current, previous):
-    """ Calculates yearly expenses, based on user configuration """
-    if previous is None:
-        current[KEY_EXPENSES] = config[CONFIG_EXPENSES]
-    else:
-        current[KEY_EXPENSES] = previous[KEY_EXPENSES] * (1 + config[CONFIG_INFLATION])
-
-def calc_income(current):
-    """ Calculates yearly income from configured sources """
-    current[CONFIG_INCOME_TOTAL] = 0
-
-    for source in config[CONFIG_INCOME_SOURCES]:
-        if filter_year(current[KEY_YEAR], source):
-            current[CONFIG_INCOME_TOTAL] += source[CONFIG_INCOME_AMOUNT]
-    # TBD -- need to adjust the above for inflation
+#------------------ Account balances
 
 def calc_balance_adjust(current):
     """ Adjusts balances of savings account to add yearly income
@@ -145,16 +160,29 @@ def calc_year(current, previous):
     """
     calc_returns(current, previous)
     calc_expenses(current, previous)
-    calc_income(current)
+    calc_income(current, previous)
     calc_balance_adjust(current)
+
+#------------------ Output
+
+def get_output_keys():
+    """ Assembles keys for output table """
+    output_keys = [(KEY_YEAR, "%d"),
+                   (KEY_EXPENSES, "%.2f")
+                  ]
+    for source in config[CONFIG_INCOME_SOURCES]:
+        output_keys.append((create_key(CONFIG_INCOME_SOURCES, source), "%.2f"))
+    output_keys.append((CONFIG_INCOME_TOTAL, "%.2f"))
+    return output_keys
 
 def output_years_html(years):
     """ Generates HTML output summarizing the key calculations for each year """
+    output_keys = get_output_keys()
     with open('Results.html', "w") as outf:
         outf.write("<HTML><BODY><TABLE>\n")
 
         outf.write("<TR>")
-        for keytup in OUTPUT_KEYS:
+        for keytup in output_keys:
             outf.write("<TH>"+keytup[0]+"</TH>")
         for acct_name in config[CONFIG_ACCTS]:
             outf.write("<TH>"+acct_name+"</TH>")
@@ -162,7 +190,7 @@ def output_years_html(years):
 
         for year in years:
             outf.write("<TR>")
-            for keytup in OUTPUT_KEYS:
+            for keytup in output_keys:
                 outf.write("<TD>"+(keytup[1] % year[keytup[0]])+"</TD>")
 
             for acct_name in config[CONFIG_ACCTS]:
