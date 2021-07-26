@@ -3,6 +3,10 @@
 	"inflation": 0.04,
     "accounts": { "savings" : { "balance": 10000, "targetBalance": 10000, "returnRate": 0.00 }
                 , "investment" : { "balance": 10000, "returnRate": 0.05}
+                , "home" : { "balance": 0.0, "returnRate": 0.00
+                           , "mortgageRate": 0.03, "mortgagePayment": 421.60
+                           , "principal": 100000, "valuation": 500000, "valuationGrowthRate": 0.05
+                           }
                 },
     "incomeSources": [ { "name": "husband", "amount": 100000, "startYear": 2021, "endYear": 2025 }
                      , { "name": "wife", "amount": 100000 , "startYear": 2023, "endYear": 2025 }

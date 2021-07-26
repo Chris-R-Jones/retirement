@@ -20,10 +20,14 @@ CONFIG_INCOME_END_AGE = 'endAge'
 CONFIG_INCOME_ACCOUNTS = 'incomeAccounts'
 
 CONFIG_ACCTS = 'accounts'
-CONFIG_ACCT_NAME = CONFIG_NAME # TBD needed at all?
 CONFIG_ACCT_BALANCE = 'balance'
 CONFIG_ACCT_TARGET_BALANCE = 'targetBalance'
 CONFIG_ACCT_RETURN_RATE = 'returnRate'
+CONFIG_ACCT_MORTGAGE_RATE = 'mortgageRate'
+CONFIG_ACCT_MORTGAGE_PAYMENT = 'mortgagePayment'
+CONFIG_ACCT_PRINCIPAL = 'principal'
+CONFIG_ACCT_VALUATION = 'valuation'
+CONFIG_ACCT_VAL_GROWTH_RATE = 'valuationGrowthRate'
 
 KEY_INCOME_PER_CATEGORY = 'incomeCategory'
 KEY_ACCOUNT_BALANCES = 'accountBalances'
@@ -38,6 +42,7 @@ KEY_EXPENSES = 'expenses'
 #------------------ Account class
 
 class Account():
+    # pylint: disable=too-many-instance-attributes
     """ Representation of a financial account """
     def __init__(self, acct_name, cfg):
 
@@ -47,7 +52,7 @@ class Account():
         assert cfg[CONFIG_ACCT_RETURN_RATE] is not None
         assert cfg[CONFIG_ACCT_RETURN_RATE] >= 0
         assert (CONFIG_ACCT_TARGET_BALANCE not in cfg
-                or cfg[CONFIG_ACCT_TARGET_BALANCE] > 0
+                or cfg[CONFIG_ACCT_TARGET_BALANCE] >= 0.0
                )
 
         # Set initial state from config
@@ -56,8 +61,39 @@ class Account():
         if CONFIG_ACCT_TARGET_BALANCE in cfg:
             self.target_balance = float(cfg[CONFIG_ACCT_TARGET_BALANCE])
         else:
-            self.target_balance = 0.0
+            self.target_balance = None
         self.return_rate = cfg[CONFIG_ACCT_RETURN_RATE]
+
+        self.principal = None
+        if CONFIG_ACCT_PRINCIPAL in cfg:
+            self.principal = cfg[CONFIG_ACCT_PRINCIPAL]
+
+        self.valuation = None
+        if CONFIG_ACCT_VALUATION in cfg:
+            self.valuation = cfg[CONFIG_ACCT_VALUATION]
+
+        self.val_growth_rate = None
+        if CONFIG_ACCT_VAL_GROWTH_RATE in cfg:
+            self.val_growth_rate = cfg[CONFIG_ACCT_VAL_GROWTH_RATE]
+
+        self.mortgage_rate = None
+        if CONFIG_ACCT_MORTGAGE_RATE in cfg:
+            self.mortgage_rate = cfg[CONFIG_ACCT_MORTGAGE_RATE]
+
+        self.mortgage_payment = None
+        if CONFIG_ACCT_MORTGAGE_PAYMENT in cfg:
+            self.mortgage_payment = cfg[CONFIG_ACCT_MORTGAGE_PAYMENT]
+
+        if self.mortgage_rate is not None or self.principal is not None \
+            or self.mortgage_payment is not None:
+            assert self.mortgage_rate and self.mortgage_rate > 0.0
+            assert self.mortgage_payment and self.mortgage_payment > 0.0
+            assert self.principal and self.principal >= 0.0
+            assert self.target_balance == 0.0
+
+        if self.valuation is not None or self.val_growth_rate is not None:
+            assert self.valuation and self.valuation > 0.0
+            assert self.val_growth_rate and self.val_growth_rate >= 0.0
 
     def apply_account_return(self, year):
         """ Applies yearly account grwoth by estimated return rate """
@@ -76,11 +112,30 @@ class Account():
         """ Applies yearly expenses """
         self.balance -= expense
 
-
     def transfer_to(self, account, amount):
         """ Transfers amount from this account to target account """
         self.balance -= amount
         account.balance += amount
+
+    def has_mortgage(self):
+        """ Returns true if this account has a mortgage """
+        return self.mortgage_rate and self.principal > 0.0
+
+    def apply_mortgage(self):
+        """ Calculates interest and principal from mortgage payments """
+        mon_int_rate = self.mortgage_rate / 12
+        for _ in range(0, 12):
+            interest = self.principal * mon_int_rate
+            assert interest < self.mortgage_payment
+            self.balance -= self.mortgage_payment
+            self.principal -= (self.mortgage_payment - interest)
+
+    def apply_valuation_gains(self):
+        """ Applies unrealized gains on valuation """
+        if not self.valuation or not self.val_growth_rate:
+            return
+        year_gains = self.valuation * self.val_growth_rate
+        self.valuation += year_gains
 
 #------------------ Config
 
@@ -135,6 +190,11 @@ def calc_expenses(current, previous):
     savings = current[KEY_ACCTS]["savings"]
     savings.apply_expenses(expense)
 
+    for acct_name in config[CONFIG_ACCTS]:
+        account = current[KEY_ACCTS][acct_name]
+        if account.has_mortgage():
+            account.apply_mortgage()
+
 #------------------ Income
 
 def calc_income(current):
@@ -160,28 +220,40 @@ def calc_accounts(current):
     for acct_name in config[CONFIG_ACCTS]:
         account = current[KEY_ACCTS][acct_name]
         account.apply_account_return(current)
+        account.apply_valuation_gains()
 
 #------------------ Account balances
 
 def calc_rebalance_accounts(current):
     """ Transfers cash between accounts to match target balances
     """
-    savings = current[KEY_ACCTS]["savings"]
 
-    # Draw/Push funds from other accounts to match savings target.
+    # Draw/Push funds from accounts to match their balance targets.
     # TBD to add priorities or similar to control ordering
-    deficit = savings.target_balance - savings.balance
-    for acct_name in config[CONFIG_ACCTS]:
-        if acct_name == "savings" or deficit == 0:
+    for unbal_name in config[CONFIG_ACCTS]:
+        unbalanced = current[KEY_ACCTS][unbal_name]
+
+        if unbalanced.target_balance is None or \
+           unbalanced.balance == unbalanced.target_balance:
             continue
-        account = current[KEY_ACCTS][acct_name]
-        if deficit < 0:
-            savings.transfer_to(account, -deficit)
-            deficit = 0
-        elif deficit > 0 and account.balance > 0:
-            transfer = min(deficit, account.balance)
-            account.transfer_to(savings, transfer)
-            deficit -= transfer
+
+        deficit = unbalanced.target_balance - unbalanced.balance
+        for acct_name in config[CONFIG_ACCTS]:
+            if acct_name == unbal_name or deficit == 0:
+                continue
+            account = current[KEY_ACCTS][acct_name]
+            if account.balance == account.target_balance \
+               and not account.name == "savings":
+                continue
+            if account.target_balance == 0.0:
+                continue
+            if deficit < 0:
+                unbalanced.transfer_to(account, -deficit)
+                deficit = 0
+            elif deficit > 0 and account.balance > 0:
+                transfer = min(deficit, account.balance)
+                account.transfer_to(unbalanced, transfer)
+                deficit -= transfer
 
 def calc_year(current, previous):
     """ Calculates the next year's results, given global configuration
@@ -215,7 +287,10 @@ def output_years_html(years):
         for acct_name in config[CONFIG_ACCTS]:
             outf.write("<TH>account income (%s)</TH>" % acct_name)
         for acct_name in config[CONFIG_ACCTS]:
-            outf.write("<TH>%s</TH>" % acct_name)
+            outf.write("<TH>balance (%s)</TH>" % acct_name)
+        for acct_name in config[CONFIG_ACCTS]:
+            if CONFIG_ACCT_PRINCIPAL in config[CONFIG_ACCTS][acct_name]:
+                outf.write("<TH>principal (%s)</TH>" % acct_name)
         outf.write("</TR>\n")
 
         for year in years:
@@ -224,19 +299,16 @@ def output_years_html(years):
                 outf.write("<TD>"+(keytup[1] % year[keytup[0]])+"</TD>")
             for source in config[CONFIG_INCOME_SOURCES]:
                 name = source[CONFIG_NAME]
-                outf.write("<TD>"
-                           +"%.2f" % year[KEY_INCOME_PER_CATEGORY][name]
-                           +"</TD>")
+                outf.write("<TD>%.2f</TD>" % year[KEY_INCOME_PER_CATEGORY][name])
             for acct_name in config[CONFIG_ACCTS]:
-                outf.write("<TD>"
-                           +"%.2f" % year[KEY_INCOME_PER_CATEGORY][acct_name]
-                           +"</TD>")
+                outf.write("<TD>%.2f</TD>" % year[KEY_INCOME_PER_CATEGORY][acct_name])
             for acct_name in config[CONFIG_ACCTS]:
                 account = year[KEY_ACCTS][acct_name]
-                outf.write("<TD>"
-                           +"%.2f" % account.balance
-                           +"</TD>"
-                          )
+                outf.write("<TD>%.2f</TD>"%account.balance)
+            for acct_name in config[CONFIG_ACCTS]:
+                if CONFIG_ACCT_PRINCIPAL in config[CONFIG_ACCTS][acct_name]:
+                    account = year[KEY_ACCTS][acct_name]
+                    outf.write("<TD>%.2f</TD>" % account.principal)
 
             outf.write("</TR>\n")
 
