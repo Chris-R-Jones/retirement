@@ -2,6 +2,7 @@
     Mostly to prove we could have retired several years ago
 """
 import json
+import copy
 
 # Configuration keys
 CONFIG_EXPENSES = 'expenses' # monthly expenses during start year
@@ -24,33 +25,69 @@ CONFIG_ACCT_BALANCE = 'balance'
 CONFIG_ACCT_TARGET_BALANCE = 'targetBalance'
 CONFIG_ACCT_RETURN_RATE = 'returnRate'
 
-KEY_INCOME_FROM_INCOME_SOURCES = 'incomeFromIncomeSources'
-KEY_INCOME_FROM_ACCOUNTS = 'incomeFromAccounts'
+KEY_INCOME_PER_CATEGORY = 'incomeCategory'
 KEY_ACCOUNT_BALANCES = 'accountBalances'
 # TBD need to cleanup when to use CONFIG and KEY prefix
 
 # Output-only keys
+KEY_ACCTS = "accounts"
 KEY_YEAR = 'year'
-CONFIG_INCOME_TOTAL = 'incomeTotal'
+KEY_INCOME_TOTAL = 'incomeTotal'
 KEY_EXPENSES = 'expenses'
+
+#------------------ Account class
+
+class Account():
+    """ Representation of a financial account """
+    def __init__(self, acct_name, cfg):
+
+        # Validate account config
+        assert cfg[CONFIG_ACCT_BALANCE] is not None
+        assert cfg[CONFIG_ACCT_BALANCE] >= 0
+        assert cfg[CONFIG_ACCT_RETURN_RATE] is not None
+        assert cfg[CONFIG_ACCT_RETURN_RATE] >= 0
+        assert (CONFIG_ACCT_TARGET_BALANCE not in cfg
+                or cfg[CONFIG_ACCT_TARGET_BALANCE] > 0
+               )
+
+        # Set initial state from config
+        self.name = acct_name
+        self.balance = cfg[CONFIG_ACCT_BALANCE]
+        if CONFIG_ACCT_TARGET_BALANCE in cfg:
+            self.target_balance = float(cfg[CONFIG_ACCT_TARGET_BALANCE])
+        else:
+            self.target_balance = 0.0
+        self.return_rate = cfg[CONFIG_ACCT_RETURN_RATE]
+
+    def apply_account_return(self, year):
+        """ Applies yearly account grwoth by estimated return rate """
+        year_return = self.balance * self.return_rate
+        year[KEY_INCOME_PER_CATEGORY][self.name] = year_return
+        year[KEY_INCOME_TOTAL] += year_return
+        self.balance += year_return
+
+    def apply_income(self, year, source, amount):
+        """ Applies yearly expenses """
+        year[KEY_INCOME_PER_CATEGORY][source] = amount
+        year[KEY_INCOME_TOTAL] += amount
+        self.balance += amount
+
+    def apply_expenses(self, expense):
+        """ Applies yearly expenses """
+        self.balance -= expense
+
+
+    def transfer_to(self, account, amount):
+        """ Transfers amount from this account to target account """
+        self.balance -= amount
+        account.balance += amount
 
 #------------------ Config
 
-def validate_config():
+def config_validate():
     """ Reviews configuration settings for correctness """
     assert config[CONFIG_EXPENSES] >= 0
     assert config[CONFIG_INFLATION] >= 0 and config[CONFIG_INFLATION] <= 1
-
-    assert config[CONFIG_ACCTS] is not None and len(config[CONFIG_ACCTS]) > 0
-    for acct_name in config[CONFIG_ACCTS]:
-        acct = config[CONFIG_ACCTS][acct_name]
-        assert acct[CONFIG_ACCT_BALANCE] is not None
-        assert acct[CONFIG_ACCT_BALANCE] >= 0
-        assert acct[CONFIG_ACCT_RETURN_RATE] is not None
-        assert acct[CONFIG_ACCT_RETURN_RATE] >= 0
-        assert (CONFIG_ACCT_TARGET_BALANCE not in acct
-                or acct[CONFIG_ACCT_TARGET_BALANCE] > 0
-               )
 
     assert (config[CONFIG_INCOME_SOURCES] is not None
             and len(config[CONFIG_INCOME_SOURCES]) > 0
@@ -59,12 +96,23 @@ def validate_config():
         assert income[CONFIG_INCOME_NAME] is not None
         assert income[CONFIG_INCOME_AMOUNT] is not None
 
-def load_config():
+    assert config[CONFIG_ACCTS] is not None and len(config[CONFIG_ACCTS]) > 0
+
+def config_load():
     """Loads user preferences from json configuration file"""
     with open("Configuration.json", "r") as infile:
         global config
         config = json.load(infile)
-    validate_config()
+    config_validate()
+
+
+def config_instantiate_accts():
+    """ Instantiates initial account objects based on config """
+    accounts = {}
+    for acct_name in config[CONFIG_ACCTS]:
+        acct_cfg = config[CONFIG_ACCTS][acct_name]
+        accounts[acct_name] = Account(acct_name, acct_cfg)
+    return accounts
 
 #------------------ Util
 
@@ -78,91 +126,70 @@ def filter_year(year, src):
 
 def calc_expenses(current, previous):
     """ Calculates yearly expenses, based on user configuration """
+
     if previous is None:
-        current[KEY_EXPENSES] = config[CONFIG_EXPENSES]
+        expense = current[KEY_EXPENSES] = config[CONFIG_EXPENSES]
     else:
-        current[KEY_EXPENSES] = previous[KEY_EXPENSES] * (1 + config[CONFIG_INFLATION])
+        expense = current[KEY_EXPENSES] = previous[KEY_EXPENSES] * (1 + config[CONFIG_INFLATION])
+
+    savings = current[KEY_ACCTS]["savings"]
+    savings.apply_expenses(expense)
 
 #------------------ Income
 
 def calc_income(current):
     """ Calculates all types of yearly income """
-    current[CONFIG_INCOME_TOTAL] = 0
-
     calc_income_sources(current)
-    calc_income_accounts(current)
+    calc_accounts(current)
 
 def calc_income_sources(current):
     """ Calculates yearly income from configured sources """
+    savings = current[KEY_ACCTS]["savings"]
 
-    incomes = {}
     for source in config[CONFIG_INCOME_SOURCES]:
         income = 0
         if filter_year(current[KEY_YEAR], source):
+            # TBD -- need to adjust income for raises
             income = source[CONFIG_INCOME_AMOUNT]
-        incomes[source[CONFIG_NAME]] = income
-        current[CONFIG_INCOME_TOTAL] += income
-    current[KEY_INCOME_FROM_INCOME_SOURCES] = incomes
+            savings.apply_income(current, source[CONFIG_NAME], income)
+        else:
+            savings.apply_income(current, source[CONFIG_NAME], 0)
 
-    # TBD -- need to adjust the above for inflation
-    # TBD Mark: income is what it is regardless of inflation, but we can add support for raises)
-
-def calc_income_accounts(current):
+def calc_accounts(current):
     """ Calculates annual gains on accounts """
-    incomes = {}
     for acct_name in config[CONFIG_ACCTS]:
-        income = current[KEY_ACCOUNT_BALANCES][acct_name] \
-                 * config[CONFIG_ACCTS][acct_name][CONFIG_ACCT_RETURN_RATE]
-        incomes[acct_name] = income
-        current[CONFIG_INCOME_TOTAL] += income
-    current[KEY_INCOME_FROM_ACCOUNTS] = incomes
+        account = current[KEY_ACCTS][acct_name]
+        account.apply_account_return(current)
 
 #------------------ Account balances
 
-def calc_account_balance(current, previous):
-    """ Adjusts account balances with previous year's income and pay expenses
-
-        TBD: to not hardcode "savings"...
+def calc_rebalance_accounts(current):
+    """ Transfers cash between accounts to match target balances
     """
-
-    if previous is None:
-        # Initialize accounts to starting balance
-        account_balances = {}
-        for acct_name in config[CONFIG_ACCTS]:
-            account_balances[acct_name] = config[CONFIG_ACCTS][acct_name][CONFIG_ACCT_BALANCE]
-        current[KEY_ACCOUNT_BALANCES] = account_balances
-        return
-
-    account_balances = previous[KEY_ACCOUNT_BALANCES].copy()
-    account_balances["savings"] += previous[CONFIG_INCOME_TOTAL]
-    account_balances["savings"] -= previous[KEY_EXPENSES]
-
-    deficit = config[CONFIG_ACCTS]["savings"][CONFIG_ACCT_TARGET_BALANCE] \
-              - account_balances["savings"]
+    savings = current[KEY_ACCTS]["savings"]
 
     # Draw/Push funds from other accounts to match savings target.
     # TBD to add priorities or similar to control ordering
+    deficit = savings.target_balance - savings.balance
     for acct_name in config[CONFIG_ACCTS]:
         if acct_name == "savings" or deficit == 0:
             continue
+        account = current[KEY_ACCTS][acct_name]
         if deficit < 0:
-            account_balances[acct_name] += -deficit
-            account_balances["savings"] += deficit
+            savings.transfer_to(account, -deficit)
             deficit = 0
-        elif deficit > 0 and account_balances[acct_name] > 0:
-            transfer = min(deficit, account_balances[acct_name])
-            account_balances["savings"] += transfer
-            account_balances[acct_name] -= transfer
+        elif deficit > 0 and account.balance > 0:
+            transfer = min(deficit, account.balance)
+            account.transfer_to(savings, transfer)
             deficit -= transfer
-    current[KEY_ACCOUNT_BALANCES] = account_balances
 
 def calc_year(current, previous):
     """ Calculates the next year's results, given global configuration
         and the previous year
     """
-    calc_account_balance(current, previous)
     calc_expenses(current, previous)
     calc_income(current)
+    calc_rebalance_accounts(current)
 
 #------------------ Output
 
@@ -170,7 +197,7 @@ def get_output_keys():
     """ Assembles keys for output table """
     output_keys = [(KEY_YEAR, "%d"),
                    (KEY_EXPENSES, "%.2f"),
-                   (CONFIG_INCOME_TOTAL, "%.2f")
+                   (KEY_INCOME_TOTAL, "%.2f")
                   ]
     return output_keys
 
@@ -196,17 +223,18 @@ def output_years_html(years):
             for keytup in output_keys:
                 outf.write("<TD>"+(keytup[1] % year[keytup[0]])+"</TD>")
             for source in config[CONFIG_INCOME_SOURCES]:
+                name = source[CONFIG_NAME]
                 outf.write("<TD>"
-                           +"%.2f" % year[KEY_INCOME_FROM_INCOME_SOURCES][source[CONFIG_NAME]]
+                           +"%.2f" % year[KEY_INCOME_PER_CATEGORY][name]
                            +"</TD>")
             for acct_name in config[CONFIG_ACCTS]:
                 outf.write("<TD>"
-                           +"%.2f" % year[KEY_INCOME_FROM_ACCOUNTS][acct_name]
-                           +"</TD>"
-                          )
+                           +"%.2f" % year[KEY_INCOME_PER_CATEGORY][acct_name]
+                           +"</TD>")
             for acct_name in config[CONFIG_ACCTS]:
+                account = year[KEY_ACCTS][acct_name]
                 outf.write("<TD>"
-                           +"%.2f" % year[KEY_ACCOUNT_BALANCES][acct_name]
+                           +"%.2f" % account.balance
                            +"</TD>"
                           )
 
@@ -216,19 +244,39 @@ def output_years_html(years):
 
 #------------------ Main loop
 
+def copy_accounts(old_accounts):
+    """ Deep copies a dictionary of accounts keyed by name """
+    new_accounts = {}
+    for acct in old_accounts:
+        new_accounts[acct] = copy.deepcopy(old_accounts[acct])
+    return new_accounts
+
 def main():
     """ Program main entry point """
-    load_config()
+    config_load()
 
     years = []
     previous = None
     for year in range(2021, 2071):
-        current = {KEY_YEAR : year}
+
+        # Instantiate new year, copying from previous
+        current = {KEY_YEAR : year, \
+                   KEY_INCOME_PER_CATEGORY : {},
+                   KEY_INCOME_TOTAL : 0.0
+                  }
+        if not previous:
+            current[KEY_ACCTS] = config_instantiate_accts()
+        else:
+            current[KEY_ACCTS] = copy_accounts(previous[KEY_ACCTS]) # pylint: disable=unsubscriptable-object
+
+        # Update the yearly calculations
         calc_year(current, previous)
+
+        # Store results of all years
         years.append(current)
         previous = current
-        if current[KEY_ACCOUNT_BALANCES]["savings"] < 0:
-            print 'Destitute on year '+str(year)
+        if current[KEY_ACCTS]["savings"].balance < 0:
+            print('Destitute on year '+str(year))
             break
 
     output_years_html(years)
