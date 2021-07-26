@@ -291,6 +291,9 @@ def output_years_html(years):
         for acct_name in config[CONFIG_ACCTS]:
             if CONFIG_ACCT_PRINCIPAL in config[CONFIG_ACCTS][acct_name]:
                 outf.write("<TH>principal (%s)</TH>" % acct_name)
+        for acct_name in config[CONFIG_ACCTS]:
+            if CONFIG_ACCT_VALUATION in config[CONFIG_ACCTS][acct_name]:
+                outf.write("<TH>valuation (%s)</TH>" % acct_name)
         outf.write("</TR>\n")
 
         for year in years:
@@ -309,6 +312,10 @@ def output_years_html(years):
                 if CONFIG_ACCT_PRINCIPAL in config[CONFIG_ACCTS][acct_name]:
                     account = year[KEY_ACCTS][acct_name]
                     outf.write("<TD>%.2f</TD>" % account.principal)
+            for acct_name in config[CONFIG_ACCTS]:
+                if CONFIG_ACCT_VALUATION in config[CONFIG_ACCTS][acct_name]:
+                    account = year[KEY_ACCTS][acct_name]
+                    outf.write("<TD>%.2f</TD>" % account.valuation)
 
             outf.write("</TR>\n")
 
