@@ -12,6 +12,10 @@ CONFIG_START_YEAR = 'startYear'
 CONFIG_END_YEAR = 'endYear'
 CONFIG_NAME = 'name'
 
+CONFIG_CAPITAL_GAINS_TAX_RATE = "capitalGainsTaxRate"
+CONFIG_FEDERAL_INCOME_TAX_RATE = "federalIncomeTaxRate"
+CONFIG_STATE_INCOME_TAX_RATE = "stateIncomeTaxRate"
+
 CONFIG_INCOME_SOURCES = 'incomeSources'
 CONFIG_INCOME_NAME = CONFIG_NAME # TBD needed at all?
 CONFIG_INCOME_AMOUNT = 'amount'
@@ -27,6 +31,7 @@ CONFIG_ACCT_MORTGAGE_RATE = 'mortgageRate'
 CONFIG_ACCT_MORTGAGE_PAYMENT = 'mortgagePayment'
 CONFIG_ACCT_PRINCIPAL = 'principal'
 CONFIG_ACCT_VALUATION = 'valuation'
+CONFIG_ACCT_COST_BASIS = 'costBasis'
 CONFIG_ACCT_VAL_GROWTH_RATE = 'valuationGrowthRate'
 
 KEY_INCOME_PER_CATEGORY = 'incomeCategory'
@@ -68,6 +73,10 @@ class Account():
         if CONFIG_ACCT_PRINCIPAL in cfg:
             self.principal = cfg[CONFIG_ACCT_PRINCIPAL]
 
+        self.cost_basis = None
+        if CONFIG_ACCT_COST_BASIS in cfg:
+            self.cost_basis = cfg[CONFIG_ACCT_COST_BASIS]
+
         self.valuation = None
         if CONFIG_ACCT_VALUATION in cfg:
             self.valuation = cfg[CONFIG_ACCT_VALUATION]
@@ -98,15 +107,13 @@ class Account():
     def apply_account_return(self, year):
         """ Applies yearly account grwoth by estimated return rate """
         year_return = self.balance * self.return_rate
-        year[KEY_INCOME_PER_CATEGORY][self.name] = year_return
-        year[KEY_INCOME_TOTAL] += year_return
-        self.balance += year_return
+        after_tax = register_income(year, self.name, year_return, True, False)
+        self.balance += after_tax
 
     def apply_income(self, year, source, amount):
-        """ Applies yearly expenses """
-        year[KEY_INCOME_PER_CATEGORY][source] = amount
-        year[KEY_INCOME_TOTAL] += amount
-        self.balance += amount
+        """ Applies yearly income """
+        after_tax = register_income(year, source, amount, False, False)
+        self.balance += after_tax
 
     def apply_expenses(self, expense):
         """ Applies yearly expenses """
@@ -133,6 +140,16 @@ class Account():
             else:
                 self.balance -= self.mortgage_payment
                 self.principal -= (self.mortgage_payment - interest)
+
+    def apply_re_sale(self, year):
+        """ Applies a real-estate sale and registers capital gain """
+        gain = self.valuation - self.cost_basis
+        after_tax = register_income(year, self.name, gain, True, False)
+        self.balance += self.cost_basis
+        self.balance += after_tax
+        self.balance -= self.principal
+        self.principal = 0.0
+        self.valuation = 0.0
 
     def apply_valuation_gains(self):
         """ Applies unrealized gains on valuation """
@@ -201,6 +218,27 @@ def calc_expenses(current, previous):
 
 #------------------ Income
 
+def register_income(year, category, amount, is_capital_gain, is_tax_free):
+    """ Records income for a given category after deducting taxes on that
+        income.  Returns the income after taxes (for balance adjustments)
+    """
+    if not is_tax_free and is_capital_gain:
+        tax = amount * config[CONFIG_CAPITAL_GAINS_TAX_RATE]
+        tax += amount * config[CONFIG_STATE_INCOME_TAX_RATE]
+    elif not is_tax_free:
+        tax = amount * config[CONFIG_FEDERAL_INCOME_TAX_RATE]
+        tax += amount * config[CONFIG_STATE_INCOME_TAX_RATE]
+    else:
+        tax = 0.0
+
+    amount -= tax
+
+    if category not in year[KEY_INCOME_PER_CATEGORY]:
+        year[KEY_INCOME_PER_CATEGORY][category] = 0.0
+    year[KEY_INCOME_PER_CATEGORY][category] += amount
+    year[KEY_INCOME_TOTAL] += amount
+    return amount
+
 def calc_income(current):
     """ Calculates all types of yearly income """
     calc_income_sources(current)
@@ -234,20 +272,23 @@ def calc_rebalance_accounts(current):
 
     # Draw/Push funds from accounts to match their balance targets.
     # TBD to add priorities or similar to control ordering
+
+    # Find an account that doesn't match its target balance
     for unbal_name in config[CONFIG_ACCTS]:
         unbalanced = current[KEY_ACCTS][unbal_name]
 
         if unbalanced.target_balance is None or \
            unbalanced.balance == unbalanced.target_balance:
             continue
-
         deficit = unbalanced.target_balance - unbalanced.balance
+
+        # Find an account to draw funds from (or send to)
         for acct_name in config[CONFIG_ACCTS]:
             if acct_name == unbal_name or deficit == 0:
                 continue
             account = current[KEY_ACCTS][acct_name]
             if account.balance == account.target_balance \
-               and not account.name == "savings":
+               or account.name == "savings":
                 continue
             if account.target_balance == 0.0:
                 continue
@@ -259,12 +300,30 @@ def calc_rebalance_accounts(current):
                 account.transfer_to(unbalanced, transfer)
                 deficit -= transfer
 
+def calc_apply_home_sale_triggers(current):
+    """ Checks if savings shortfall requires a home sale, and applies
+        real estate sale if any available
+    """
+    savings = current[KEY_ACCTS]["savings"]
+    while savings.balance < 0:
+        found = False
+        for acct_name in current[KEY_ACCTS]:
+            acct = current[KEY_ACCTS][acct_name]
+            if acct.valuation is not None and acct.valuation > 0:
+                acct.apply_re_sale(current)
+                break
+        if not found:
+            break
+    calc_rebalance_accounts(current)
+
 def calc_year(current, previous):
     """ Calculates the next year's results, given global configuration
         and the previous year
     """
     calc_expenses(current, previous)
     calc_income(current)
+    calc_rebalance_accounts(current)
+    calc_apply_home_sale_triggers(current)
     calc_rebalance_accounts(current)
 
 #------------------ Output

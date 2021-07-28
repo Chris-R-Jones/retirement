@@ -1,11 +1,14 @@
 {
     "expenses": 50000,
 	"inflation": 0.04,
+    "capitalGainsTaxRate": 0.15,
+    "federalIncomeTaxRate": 0.24,
+    "stateIncomeTaxRate": 0.093,
     "accounts": { "savings" : { "balance": 10000, "targetBalance": 10000, "returnRate": 0.00 }
                 , "investment" : { "balance": 10000, "returnRate": 0.05}
-                , "home" : { "balance": 0.0, "returnRate": 0.00
-                           , "mortgageRate": 0.03, "mortgagePayment": 421.60
-                           , "principal": 100000, "valuation": 500000, "valuationGrowthRate": 0.05
+                , "home" : { "balance": 0.0, "returnRate": 0.00, "targetBalance": 0.00
+                           , "mortgageRate": 0.03, "mortgagePayment": 421.60, "principal": 100000
+                           , "costBasis": 400000, "valuation": 500000, "valuationGrowthRate": 0.05
                            }
                 },
     "incomeSources": [ { "name": "husband", "amount": 100000, "startYear": 2021, "endYear": 2025 }
