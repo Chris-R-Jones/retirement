@@ -127,8 +127,12 @@ class Account():
         for _ in range(0, 12):
             interest = self.principal * mon_int_rate
             assert interest < self.mortgage_payment
-            self.balance -= self.mortgage_payment
-            self.principal -= (self.mortgage_payment - interest)
+            if self.mortgage_payment > self.principal:
+                self.balance -= self.principal
+                self.principal = 0.0
+            else:
+                self.balance -= self.mortgage_payment
+                self.principal -= (self.mortgage_payment - interest)
 
     def apply_valuation_gains(self):
         """ Applies unrealized gains on valuation """
@@ -323,13 +327,6 @@ def output_years_html(years):
 
 #------------------ Main loop
 
-def copy_accounts(old_accounts):
-    """ Deep copies a dictionary of accounts keyed by name """
-    new_accounts = {}
-    for acct in old_accounts:
-        new_accounts[acct] = copy.deepcopy(old_accounts[acct])
-    return new_accounts
-
 def main():
     """ Program main entry point """
     config_load()
@@ -346,7 +343,7 @@ def main():
         if not previous:
             current[KEY_ACCTS] = config_instantiate_accts()
         else:
-            current[KEY_ACCTS] = copy_accounts(previous[KEY_ACCTS]) # pylint: disable=unsubscriptable-object
+            current[KEY_ACCTS] = copy.deepcopy(previous[KEY_ACCTS]) # pylint: disable=unsubscriptable-object
 
         # Update the yearly calculations
         calc_year(current, previous)
