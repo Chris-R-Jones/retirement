@@ -4,6 +4,7 @@
     "capitalGainsTaxRate": 0.15,
     "federalIncomeTaxRate": 0.24,
     "stateIncomeTaxRate": 0.093,
+    "realtorFeePercent": 0.06,
     "accounts": { "savings" : { "balance": 10000, "targetBalance": 10000, "returnRate": 0.00 }
                 , "investment" : { "balance": 10000, "returnRate": 0.05}
                 , "home" : { "balance": 0.0, "returnRate": 0.00, "targetBalance": 0.00

@@ -15,6 +15,7 @@ CONFIG_NAME = 'name'
 CONFIG_CAPITAL_GAINS_TAX_RATE = "capitalGainsTaxRate"
 CONFIG_FEDERAL_INCOME_TAX_RATE = "federalIncomeTaxRate"
 CONFIG_STATE_INCOME_TAX_RATE = "stateIncomeTaxRate"
+CONFIG_REALTOR_FEE_PERCENT = "realtorFeePercent"
 
 CONFIG_INCOME_SOURCES = 'incomeSources'
 CONFIG_INCOME_NAME = CONFIG_NAME # TBD needed at all?
@@ -107,12 +108,12 @@ class Account():
     def apply_account_return(self, year):
         """ Applies yearly account grwoth by estimated return rate """
         year_return = self.balance * self.return_rate
-        after_tax = register_income(year, self.name, year_return, True, False)
+        after_tax = register_income(year, self.name, year_return, True, False, False)
         self.balance += after_tax
 
     def apply_income(self, year, source, amount):
         """ Applies yearly income """
-        after_tax = register_income(year, source, amount, False, False)
+        after_tax = register_income(year, source, amount, False, False, False)
         self.balance += after_tax
 
     def apply_expenses(self, expense):
@@ -144,7 +145,11 @@ class Account():
     def apply_re_sale(self, year):
         """ Applies a real-estate sale and registers capital gain """
         gain = self.valuation - self.cost_basis
-        after_tax = register_income(year, self.name, gain, True, False)
+
+        # Deduct realtor's cut
+        self.valuation -= self.valuation*config[CONFIG_REALTOR_FEE_PERCENT]
+
+        after_tax = register_income(year, self.name, gain, True, False, True)
         self.balance += self.cost_basis
         self.balance += after_tax
         self.balance -= self.principal
@@ -218,13 +223,17 @@ def calc_expenses(current, previous):
 
 #------------------ Income
 
-def register_income(year, category, amount, is_capital_gain, is_tax_free):
+def register_income(year, category, amount, is_capital_gain, is_tax_free, is_primary_home):
+    # pylint: disable=too-many-arguments
     """ Records income for a given category after deducting taxes on that
         income.  Returns the income after taxes (for balance adjustments)
     """
     if not is_tax_free and is_capital_gain:
-        tax = amount * config[CONFIG_CAPITAL_GAINS_TAX_RATE]
-        tax += amount * config[CONFIG_STATE_INCOME_TAX_RATE]
+        taxable = amount
+        if is_primary_home:
+            taxable = max(amount - 500000, 0)
+        tax = taxable * config[CONFIG_CAPITAL_GAINS_TAX_RATE]
+        tax += taxable * config[CONFIG_STATE_INCOME_TAX_RATE]
     elif not is_tax_free:
         tax = amount * config[CONFIG_FEDERAL_INCOME_TAX_RATE]
         tax += amount * config[CONFIG_STATE_INCOME_TAX_RATE]
