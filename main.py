@@ -99,6 +99,7 @@ class Account():
             assert self.mortgage_rate and self.mortgage_rate > 0.0
             assert self.mortgage_payment and self.mortgage_payment > 0.0
             assert self.principal and self.principal >= 0.0
+            assert self.cost_basis and self.cost_basis > 0.0
             assert self.target_balance == 0.0
 
         if self.valuation is not None or self.val_growth_rate is not None:
@@ -144,12 +145,13 @@ class Account():
 
     def apply_re_sale(self, year):
         """ Applies a real-estate sale and registers capital gain """
-        gain = self.valuation - self.cost_basis
 
         # Deduct realtor's cut
-        self.valuation -= self.valuation*config[CONFIG_REALTOR_FEE_PERCENT]
+        fees = self.valuation*config[CONFIG_REALTOR_FEE_PERCENT]
+        gain = self.valuation - (self.cost_basis + fees)
 
         after_tax = register_income(year, self.name, gain, True, False, True)
+
         self.balance += self.cost_basis
         self.balance += after_tax
         self.balance -= self.principal
