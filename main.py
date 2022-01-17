@@ -32,7 +32,12 @@ CONFIG_ACCT_MORTGAGE_PAYMENT = 'mortgagePayment'
 CONFIG_ACCT_PRINCIPAL = 'principal'
 CONFIG_ACCT_VALUATION = 'valuation'
 
+CONFIG_MORTGAGE_MONTHLY_PAYMENT = "monthlyPayment"
+
 CONFIG_LINE_ITEM_TYPE_BASIC = 'basic'
+
+CONFIG_ACCOUNT_TYPE_BASIC = 'basic'
+CONFIG_ACCOUNT_TYPE_MORTGAGE = 'mortgage'
 
 # TBD need to cleanup when to use CONFIG and KEY prefix
 KEY_SAVINGS_ACCT = "Savings"
@@ -46,7 +51,6 @@ class Account():
 
         # Validate account config
         assert cfg[CONFIG_ACCT_BALANCE] is not None
-        assert cfg[CONFIG_ACCT_BALANCE] >= 0
         assert (CONFIG_ACCT_RETURN_RATE not in cfg
                 or cfg[CONFIG_ACCT_RETURN_RATE] >= 0.0
                )
@@ -77,9 +81,31 @@ class Account():
         account.deposit(amount)
 
     def book(self, year):
-        """ basic account books income from return rate if one is defined """
+        """ Basic account books income from return rate if one is defined """
         if self.return_rate:
             year.book(self, self.balance * self.return_rate, "Gains", self)
+
+#------------------ Mortgage class
+
+class Mortgage(Account):
+    """ Mortage principal is represented by balance. Creates mortgage payment and applies principal
+    reduction to balance. """
+    def __init__(self, acct_name, cfg):
+        Account.__init__(self, acct_name, cfg)
+        assert cfg[CONFIG_MORTGAGE_MONTHLY_PAYMENT] is not None
+        self.monthly_payment = float(cfg[CONFIG_MORTGAGE_MONTHLY_PAYMENT])
+
+    def book(self, year):
+        """ Pay the mortgage and reduce principal """
+        # TBD Need to stop when mortgage is paid off
+        # TBD calculate principal_reduction correctly based on monthly payment and mortgage
+        # interest rate
+
+        # Reduce outstanding principal
+        principal_reduction = 10000
+        year.book(self, principal_reduction, "Mortgage Principal Reduction", self)
+        # Mortgage payments over the year
+        year.book(None, -self.monthly_payment * 12, "Mortgage Payment", self)
 
 #------------------ Year class
 
@@ -93,18 +119,23 @@ class Year():
         self.accounts = {}
 
     def process(self, previous):
-        """ Calculates the year's results """
-        self.process_accounts(previous)
+        """ Processes the year's results """
+        self.init_accounts(previous)
         self.process_income_and_expenses()
         self.tax()
         self.rebalance_accounts()
 
-    def process_accounts(self, previous):
+    def init_accounts(self, previous):
         """ Get accounts ready for the year """
         if not previous:
             for acct_name in config[CONFIG_ACCTS]:
                 acct_cfg = config[CONFIG_ACCTS][acct_name]
-                self.accounts[acct_name] = Account(acct_name, acct_cfg)
+                if acct_cfg[CONFIG_TYPE] == CONFIG_ACCOUNT_TYPE_BASIC:
+                    self.accounts[acct_name] = Account(acct_name, acct_cfg)
+                elif acct_cfg[CONFIG_TYPE] == CONFIG_ACCOUNT_TYPE_MORTGAGE:
+                    self.accounts[acct_name] = Mortgage(acct_name, acct_cfg)
+                else:
+                    assert False # TBD how to raise error if account type not supported
         else:
             self.accounts = copy.deepcopy(previous.accounts) # pylint tag?pylint: disable=unsubscriptable-object
 
@@ -116,7 +147,7 @@ class Year():
             if source[CONFIG_TYPE] == CONFIG_LINE_ITEM_TYPE_BASIC:
                 book_entry_helper = BasicBookEntryHelper(source)
             else:
-                assert False # TBD how to raise error income type not supported
+                assert False # TBD how to raise error if income type not supported
             self.book(None, book_entry_helper.get_amount(), source[CONFIG_NAME], None)
         # Add more income and expenses that originate from accounts
         for account in self.accounts.values():
@@ -129,6 +160,18 @@ class Year():
             account = self.accounts[KEY_SAVINGS_ACCT]
         account.deposit(amount)
         self.books.append(BookEntry(account, amount, name, from_account))
+
+        # Print summary of booking
+        if self.year is not 0:
+            if amount > 0:
+                expense_income = "Income "
+            else:
+                expense_income = "Expense"
+            from_account_str = ''
+            if from_account is not None:
+                from_account_str = '(initiated by %s)' %from_account.name
+            print '{} {}: {} applied to {} for {} {}' \
+                .format(self.year, expense_income, amount, account.name, name, from_account_str)
 
     def tax(self):
         """ Calculate tax return and pay taxes """
@@ -285,7 +328,7 @@ def main():
 
     years = []
     previous = None
-    for year in range(2022, 2071):
+    for year in range(2022, 2024):
 
         # Instantiate new year, copying from previous
         current = Year(year)
@@ -295,7 +338,7 @@ def main():
         years.append(current)
         previous = current
         if current.get_net_worth() < 0:
-            print 'Destitute on year %d' % year
+            print 'Destitute on year {}'.format(year)
             break
 
     output_years_html(years)
