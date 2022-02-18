@@ -84,7 +84,7 @@ class Account():
         self.deposit(-amount)
         account.deposit(amount)
 
-    def book(self, year):
+    def process_income_and_expenses(self, year):
         """ Basic account books income from return rate if one is defined """
         if self.return_rate:
             # TBD Better not to have a base implementation at all?
@@ -100,7 +100,7 @@ class Mortgage(Account):
         assert cfg[CONFIG_MORTGAGE_MONTHLY_PAYMENT] is not None
         self.monthly_payment = float(cfg[CONFIG_MORTGAGE_MONTHLY_PAYMENT])
 
-    def book(self, year):
+    def process_income_and_expenses(self, year):
         """ Pay the mortgage and reduce principal """
         # TBD Need to stop when mortgage is paid off
         # TBD calculate principal_reduction correctly based on monthly payment and mortgage
@@ -158,7 +158,7 @@ class Year():
                       source[CONFIG_NAME], None)
         # Add more income and expenses that originate from accounts
         for account in self.accounts.values():
-            account.book(self)
+            account.process_income_and_expenses(self)
 
     def book(self, account, amount, income_type, name, from_account):
         """ Add transaction to books and transfer funds to account accordingly """
