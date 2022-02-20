@@ -193,10 +193,12 @@ class Year():
                 book_entry_helper = BasicBookEntryHelper(source)
             else:
                 assert False # TBD how to raise error if income type not supported
-            self.book(None, book_entry_helper.get_amount(), source[CONFIG_NAME], None)
-            if book_entry_helper.get_tax_type() is not None:
-                self.book_tax(book_entry_helper.get_amount(), book_entry_helper.get_tax_type(),
-                              source[CONFIG_NAME])
+            if book_entry_helper.filter(self.year):
+                amount = book_entry_helper.get_amount()
+                tax_type = book_entry_helper.get_tax_type()
+                self.book(None, amount, source[CONFIG_NAME], None)
+                if tax_type is not None:
+                    self.book_tax(amount, tax_type, source[CONFIG_NAME])
         # Add more income and expenses that originate from accounts
         for account in self.accounts.values():
             account.process_income_and_expenses()
@@ -331,19 +333,25 @@ class BasicBookEntryHelper():
     """ Determines a basic income or expense amount from configuration that remains constant and
     optionally applies to a certain year range """
     def __init__(self, cfg):
-        self.amount = cfg[CONFIG_INCOME_EXPENSE_AMOUNT]
-        self.name = cfg[CONFIG_NAME]
+        self.cfg = cfg
 
     def get_amount(self):
         """ Return the configured amount """
-        return self.amount #TBD add support for year filter and inflation
+        return self.cfg[CONFIG_INCOME_EXPENSE_AMOUNT] #TBD add support for inflation
 
     def get_tax_type(self):
         """ All income is reported as taxable income """
         tax_type = None
-        if self.amount > 0:
+        if self.cfg[CONFIG_INCOME_EXPENSE_AMOUNT] > 0:
             tax_type = TAX_INCOME
         return tax_type
+
+    def filter(self, year):
+        """ Return False to filter out an entry.
+        Check if year is filtered out via configuration """
+        return ((CONFIG_START_YEAR not in self.cfg or self.cfg[CONFIG_START_YEAR] <= year) and
+                (CONFIG_END_YEAR not in self.cfg or self.cfg[CONFIG_END_YEAR] >= year)
+               )
 
 #------------------ Config
 
@@ -366,14 +374,6 @@ def config_load():
         global config
         config = json.load(infile)
     config_validate()
-
-#------------------ Util
-
-def filter_year(year, src): #TBD find the right place for this
-    """ Checks specified dictionary for CONFIG_START_YEAR / END_YEAR keys """
-    return ((CONFIG_START_YEAR not in src or src[CONFIG_START_YEAR] <= year) and
-            (CONFIG_END_YEAR not in src or src[CONFIG_END_YEAR] >= year)
-           )
 
 #------------------ Output
 
