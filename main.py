@@ -34,24 +34,27 @@ CONFIG_ACCT_VALUATION = 'valuation'
 
 CONFIG_MORTGAGE_MONTHLY_PAYMENT = "monthlyPayment"
 
+CONFIG_INVESTMENT_BASIS = "basis"
+
 CONFIG_LINE_ITEM_TYPE_BASIC = 'basic'
 
 CONFIG_ACCOUNT_TYPE_BASIC = 'basic'
 CONFIG_ACCOUNT_TYPE_MORTGAGE = 'mortgage'
+CONFIG_ACCOUNT_TYPE_INVESTMENT = 'investment'
 
 # TBD need to cleanup when to use CONFIG and KEY prefix
 KEY_SAVINGS_ACCT = "Savings"
 
-# Types of income - leveraged for tax return
-INCOME_TYPE_INCOME = 'Income'
-INCOME_TYPE_CAPITAL_GAINS = 'CapitalGains'
+# Types of taxes
+TAX_INCOME = 'Income'
+TAX_CAPITAL_GAINS = 'CapitalGains'
 
 #------------------ Account class
 
 class Account():
     # pylint: disable=too-many-instance-attributes
-    """ Representation of a bookkeeping account """
-    def __init__(self, acct_name, cfg):
+    """ Representation of a bookkeeping account for a given year """
+    def __init__(self, acct_name, cfg, year):
 
         # Validate account config
         assert cfg[CONFIG_ACCT_BALANCE] is not None
@@ -64,6 +67,7 @@ class Account():
 
         # Set initial state from config
         self.name = acct_name
+        self.year = year
         self.balance = cfg[CONFIG_ACCT_BALANCE]
         if CONFIG_ACCT_TARGET_BALANCE in cfg:
             self.target_balance = float(cfg[CONFIG_ACCT_TARGET_BALANCE])
@@ -75,32 +79,59 @@ class Account():
         else:
             self.return_rate = None
 
-    def deposit(self, amount):
-        """ Deposit funds into account """
+    def deposit(self, amount, appreciation):
+        """ Deposit funds into account. Negative amount is a withdrawl.
+        appreciation is a boolean flag that indicates whether the deposit represents
+        a change in appreciation. """
         self.balance += amount
 
     def transfer_to(self, account, amount):
         """ Transfers amount from this account to target account """
-        self.deposit(-amount)
-        account.deposit(amount)
+        print 'Transfer ${} from {} to {}'.format(amount, self.name, account.name)
+        self.deposit(-amount, False)
+        account.deposit(amount, False)
 
-    def process_income_and_expenses(self, year):
+    def process_income_and_expenses(self):
         """ Basic account books income from return rate if one is defined """
         if self.return_rate:
             # TBD Better not to have a base implementation at all?
-            year.book(self, self.balance * self.return_rate, None, "Gains", self)
+            self.year.book(self, self.balance * self.return_rate, "Gains", self, True)
+
+#------------------ Investment class
+
+class Investment(Account):
+    """ Investment account manages basis and tax consequences from sales. """
+    def __init__(self, acct_name, cfg, year):
+        Account.__init__(self, acct_name, cfg, year)
+        self.basis = cfg[CONFIG_INVESTMENT_BASIS]
+
+    def deposit(self, amount, appreciation):
+        """ Non-appreciation withdrawl triggers partial basis reduction and capital gains.
+        Non-appreciation deposit increases basis with no capital gains.
+        Appreciation only changes balance without basis or capital gains impact. """
+        if not appreciation:
+            if amount < 0:
+                taxable = -amount + (self.basis * amount) / self.balance
+                self.basis += (self.basis * amount) / self.balance
+                # Book capital gains incurred from sale
+                print 'Investment sale triggered capital gains of ${}'.format(taxable)
+                self.year.book_tax(taxable, TAX_CAPITAL_GAINS, "Investment Gains")
+            else:
+                self.basis += amount
+
+        Account.deposit(self, amount, appreciation)
 
 #------------------ Mortgage class
 
 class Mortgage(Account):
     """ Mortage principal is represented by balance. Creates mortgage payment and applies principal
     reduction to balance. """
-    def __init__(self, acct_name, cfg):
-        Account.__init__(self, acct_name, cfg)
+    def __init__(self, acct_name, cfg, year):
+        Account.__init__(self, acct_name, cfg, year)
         assert cfg[CONFIG_MORTGAGE_MONTHLY_PAYMENT] is not None
         self.monthly_payment = float(cfg[CONFIG_MORTGAGE_MONTHLY_PAYMENT])
 
-    def process_income_and_expenses(self, year):
+    def process_income_and_expenses(self):
         """ Pay the mortgage and reduce principal """
         # TBD Need to stop when mortgage is paid off
         # TBD calculate principal_reduction correctly based on monthly payment and mortgage
@@ -108,9 +139,9 @@ class Mortgage(Account):
 
         # Reduce outstanding principal
         principal_reduction = 10000
-        year.book(self, principal_reduction, None, "Mortgage Principal Reduction", self)
+        self.year.book(self, principal_reduction, "Mortgage Principal Reduction", self)
         # Mortgage payments over the year
-        year.book(None, -self.monthly_payment * 12, None, "Mortgage Payment", self)
+        self.year.book(None, -self.monthly_payment * 12, "Mortgage Payment", self)
 
 #------------------ Year class
 
@@ -121,6 +152,7 @@ class Year():
     def __init__(self, year):
         self.year = year
         self.books = [] # tracking of all income and expenses
+        self.tax_books = [] # tracking of all taxable events
         self.accounts = {}
 
     def process(self, previous):
@@ -128,22 +160,29 @@ class Year():
         print self.year
         self.init_accounts(previous)
         self.process_income_and_expenses()
-        self.tax()
+        self.tax(True)
         self.rebalance_accounts()
+        # Post process any remaining capital gains tax from rebalancing
+        self.tax(False)
 
     def init_accounts(self, previous):
         """ Get accounts ready for the year """
         if not previous:
             for acct_name in config[CONFIG_ACCTS]:
                 acct_cfg = config[CONFIG_ACCTS][acct_name]
+                # TBD Instantiate account from type to class name mapping
                 if acct_cfg[CONFIG_TYPE] == CONFIG_ACCOUNT_TYPE_BASIC:
-                    self.accounts[acct_name] = Account(acct_name, acct_cfg)
+                    self.accounts[acct_name] = Account(acct_name, acct_cfg, self)
                 elif acct_cfg[CONFIG_TYPE] == CONFIG_ACCOUNT_TYPE_MORTGAGE:
-                    self.accounts[acct_name] = Mortgage(acct_name, acct_cfg)
+                    self.accounts[acct_name] = Mortgage(acct_name, acct_cfg, self)
+                elif acct_cfg[CONFIG_TYPE] == CONFIG_ACCOUNT_TYPE_INVESTMENT:
+                    self.accounts[acct_name] = Investment(acct_name, acct_cfg, self)
                 else:
                     assert False # TBD how to raise error if account type not supported
         else:
             self.accounts = copy.deepcopy(previous.accounts) # pylint tag?pylint: disable=unsubscriptable-object
+            for account in self.accounts.values():
+                account.year = self
 
     def process_income_and_expenses(self):
         """ Create all income and expenses originating explicitly from configured entries or from
@@ -154,19 +193,21 @@ class Year():
                 book_entry_helper = BasicBookEntryHelper(source)
             else:
                 assert False # TBD how to raise error if income type not supported
-            self.book(None, book_entry_helper.get_amount(), book_entry_helper.get_income_type(),
-                      source[CONFIG_NAME], None)
+            self.book(None, book_entry_helper.get_amount(), source[CONFIG_NAME], None)
+            if book_entry_helper.get_tax_type() is not None:
+                self.book_tax(book_entry_helper.get_amount(), book_entry_helper.get_tax_type(),
+                              source[CONFIG_NAME])
         # Add more income and expenses that originate from accounts
         for account in self.accounts.values():
-            account.process_income_and_expenses(self)
+            account.process_income_and_expenses()
 
-    def book(self, account, amount, income_type, name, from_account):
+    def book(self, account, amount, name, from_account, appreciation=False):
         """ Add transaction to books and transfer funds to account accordingly """
         if account is None:
             # If account not specified default to savings account
             account = self.accounts[KEY_SAVINGS_ACCT]
-        account.deposit(amount)
-        self.books.append(BookEntry(account, amount, income_type, name, from_account))
+        account.deposit(amount, appreciation)
+        self.books.append(BookEntry(account, amount, name, from_account))
 
         # Print summary of booking
         if amount > 0:
@@ -179,27 +220,40 @@ class Year():
         print '{}: {} applied to {} for {} {}' \
             .format(expense_income, amount, account.name, name, from_account_str)
 
-    def tax(self):
+    def book_tax(self, amount, tax_type, name):
+        """ Record all taxable events """
+        self.tax_books.append(TaxBookEntry(amount, tax_type, name))
+
+    def tax(self, full):
         """ Calculate tax return and pay taxes """
-        print "Tax return"
-        total_income = 0
-        total_capital_gains = 0
+        label = "Tax return"
+        if not full:
+            label += " (post processing)"
+        print label
+        tax_income = 0
+        tax_capital_gains = 0
         print "Taxable income"
-        for book_entry in self.books:
-            if book_entry.income_type == INCOME_TYPE_INCOME:
-                total_income += book_entry.amount
-                print '{}: {}'.format(book_entry.name, book_entry.amount)
-        print 'Total taxable income: {}'.format(total_income)
+        for tax_book_entry in self.tax_books:
+            if not tax_book_entry.processed and tax_book_entry.tax_type == TAX_INCOME:
+                if full:
+                    tax_income += tax_book_entry.amount
+                    tax_book_entry.processed = True
+                    print '{}: {}'.format(tax_book_entry.name, tax_book_entry.amount)
+                else:
+                    # TBD how to raise error if income was reported outside of full tax return
+                    assert False
+        print 'Total taxable income: {}'.format(tax_income)
         print "Capital gains"
-        for book_entry in self.books:
-            if book_entry.income_type == INCOME_TYPE_CAPITAL_GAINS:
-                total_capital_gains += book_entry.amount
-                print '{}: {}'.format(book_entry.name, book_entry.amount)
-        print 'Total capital gains: {}'.format(total_capital_gains)
+        for tax_book_entry in self.tax_books:
+            if not tax_book_entry.processed and tax_book_entry.tax_type == TAX_CAPITAL_GAINS:
+                tax_capital_gains += tax_book_entry.amount
+                tax_book_entry.processed = True
+                print '{}: {}'.format(tax_book_entry.name, tax_book_entry.amount)
+        print 'Total capital gains: {}'.format(tax_capital_gains)
         # TBD calculate tax more correctly taking tax brackets and various other rules into account
-        tax = -total_income * 0.45 + total_capital_gains * 0.34
+        tax = -tax_income * 0.45 - tax_capital_gains * 0.34
         print 'Tax: {}'.format(tax)
-        self.book(None, tax, None, "Tax", None)
+        self.book(None, tax, label, None)
 
     def rebalance_accounts(self):
         """ Transfers cash between accounts to match target balances
@@ -209,6 +263,7 @@ class Year():
         # TBD to add priorities or similar to control ordering
 
         # Find an account that doesn't match its target balance
+        print 'Rebalance'
         for unbal_name in config[CONFIG_ACCTS]:
             unbalanced = self.accounts[unbal_name]
 
@@ -219,6 +274,9 @@ class Year():
 
             # Find an account to draw funds from (or send to)
             for acct_name in self.accounts:
+                # TBD For now we are only balancing into the investment account
+                if acct_name != 'Investment':
+                    continue
                 if acct_name == unbal_name or deficit == 0:
                     continue
                 account = self.accounts[acct_name]
@@ -251,12 +309,21 @@ class Year():
 
 class BookEntry():
     """ Represents an entry in the books for all accounts changes """
-    def __init__(self, account, amount, income_type, name, from_account):
+    def __init__(self, account, amount, name, from_account):
         self.account = account
         self.amount = amount
-        self.income_type = income_type
         self.name = name
         self.from_account = from_account
+
+#------------------ TaxBookEntry class
+
+class TaxBookEntry():
+    """ Represents an entry in the tax books for all taxable events """
+    def __init__(self, amount, tax_type, name):
+        self.amount = amount
+        self.tax_type = tax_type
+        self.name = name
+        self.processed = False
 
 #------------------ BasicBookEntryHelper class
 
@@ -271,12 +338,12 @@ class BasicBookEntryHelper():
         """ Return the configured amount """
         return self.amount #TBD add support for year filter and inflation
 
-    def get_income_type(self):
+    def get_tax_type(self):
         """ All income is reported as taxable income """
-        income_type = None
+        tax_type = None
         if self.amount > 0:
-            income_type = INCOME_TYPE_INCOME
-        return income_type
+            tax_type = TAX_INCOME
+        return tax_type
 
 #------------------ Config
 

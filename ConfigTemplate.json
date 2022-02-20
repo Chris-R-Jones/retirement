@@ -5,10 +5,10 @@
     "stateIncomeTaxRate": 0.093,
     "realtorFeePercent": 0.06,
     "accounts": { "Savings" : { "type": "basic", "balance": 30000, "targetBalance": 10000 }
-                , "Investment" : { "type": "basic", "balance": 10000, "returnRate": 0.10}
+                , "Investment" : { "type": "investment", "balance": 500000, "returnRate": 0.10, "basis": 5000}
 				, "XHomeProposed" : { "type": "basic", "balance": 1000000, "returnRate": 0.05}
 				, "XMortgageProposed" : { "type": "mortgage", "balance": -500000, "monthlyPayment" : 2000}
-                , "Home" : { "type": "basic", "balance": 100.0, "returnRate": 0.05, "targetBalance": 0.00
+                , "Home" : { "type": "basic", "balance": 100.0, "returnRate": 0.05
                            , "mortgageRate": 0.03, "mortgagePayment": 421.60, "principal": 100000
                            , "costBasis": 400000, "valuation": 500000, "valuationGrowthRate": 0.05
                            }
@@ -16,6 +16,6 @@
     "incomeExpenses": [ { "type": "basic", "name": "Husband", "amount": 100000, "startYear": 2021, "endYear": 2025 }
                      , { "type": "basic", "name": "Wife", "amount": 200000 , "startYear": 2023, "endYear": 2025 }
                      , { "type": "basic", "name": "Social Security", "amount" : 30000, "startAge" : 67 }
-                     , { "type": "basic", "name": "General Expenses", "amount" : -50000 }
+                     , { "type": "basic", "name": "General Expenses", "amount" : -250000 }
                      ]					 
 }
