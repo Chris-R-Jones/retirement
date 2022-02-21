@@ -20,8 +20,9 @@ CONFIG_REALTOR_FEE_PERCENT = "realtorFeePercent"
 CONFIG_INCOME_EXPENSES = 'incomeExpenses'
 CONFIG_INCOME__EXPENSES_NAME = CONFIG_NAME
 CONFIG_INCOME_EXPENSE_AMOUNT = 'amount'
-CONFIG_INCOME_START_AGE = 'startAge'
-CONFIG_INCOME_END_AGE = 'endAge'
+CONFIG_INCOME_EXPENSE_INFLATION_ADJUST = 'inflationAdjust'
+CONFIG_INCOME_START_AGE = 'startAge' # TBD keep this here or handle with startYear?
+CONFIG_INCOME_END_AGE = 'endAge' # TBD keep this here or handle with startYear?
 
 CONFIG_ACCTS = 'accounts'
 CONFIG_ACCT_BALANCE = 'balance'
@@ -48,6 +49,9 @@ KEY_SAVINGS_ACCT = "Savings"
 # Types of taxes
 TAX_INCOME = 'Income'
 TAX_CAPITAL_GAINS = 'CapitalGains'
+
+INCOME = 1
+EXPENSE = 2
 
 #------------------ Account class
 
@@ -79,6 +83,7 @@ class Account():
         else:
             self.return_rate = None
 
+    # pylint: disable=unused-argument
     def deposit(self, amount, appreciation):
         """ Deposit funds into account. Negative amount is a withdrawl.
         appreciation is a boolean flag that indicates whether the deposit represents
@@ -149,25 +154,26 @@ class Year():
     """ Represents a year in the budget. It triggers everything that happens throughout a year
     including taxes and holds the results """
 
-    def __init__(self, year):
+    def __init__(self, year, previous):
         self.year = year
+        self.previous = previous
         self.books = [] # tracking of all income and expenses
         self.tax_books = [] # tracking of all taxable events
         self.accounts = {}
 
-    def process(self, previous):
+    def process(self):
         """ Processes the year's results """
         print self.year
-        self.init_accounts(previous)
+        self.init_accounts()
         self.process_income_and_expenses()
         self.tax(True)
         self.rebalance_accounts()
         # Post process any remaining capital gains tax from rebalancing
         self.tax(False)
 
-    def init_accounts(self, previous):
+    def init_accounts(self):
         """ Get accounts ready for the year """
-        if not previous:
+        if not self.previous:
             for acct_name in config[CONFIG_ACCTS]:
                 acct_cfg = config[CONFIG_ACCTS][acct_name]
                 # TBD Instantiate account from type to class name mapping
@@ -180,7 +186,7 @@ class Year():
                 else:
                     assert False # TBD how to raise error if account type not supported
         else:
-            self.accounts = copy.deepcopy(previous.accounts) # pylint tag?pylint: disable=unsubscriptable-object
+            self.accounts = copy.deepcopy(self.previous.accounts) # pylint tag?pylint: disable=unsubscriptable-object
             for account in self.accounts.values():
                 account.year = self
 
@@ -189,8 +195,9 @@ class Year():
         accounts """
         # Start with income and expenses that are individually configured
         for source in config[CONFIG_INCOME_EXPENSES]:
+            previous_book_entry = self.get_previous_book_entry(source[CONFIG_NAME])
             if source[CONFIG_TYPE] == CONFIG_LINE_ITEM_TYPE_BASIC:
-                book_entry_helper = BasicBookEntryHelper(source)
+                book_entry_helper = BasicBookEntryHelper(source, previous_book_entry)
             else:
                 assert False # TBD how to raise error if income type not supported
             if book_entry_helper.filter(self.year):
@@ -203,6 +210,7 @@ class Year():
         for account in self.accounts.values():
             account.process_income_and_expenses()
 
+    # pylint: disable=too-many-arguments
     def book(self, account, amount, name, from_account, appreciation=False):
         """ Add transaction to books and transfer funds to account accordingly """
         if account is None:
@@ -221,6 +229,24 @@ class Year():
             from_account_str = '(initiated by %s)' %from_account.name
         print '{}: {} applied to {} for {} {}' \
             .format(expense_income, amount, account.name, name, from_account_str)
+
+    def get_previous_book_entry(self, name):
+        """ Return the BookEntry from the previous year """
+        if self.previous is not None:
+            for book_entry in self.previous.books:
+                if book_entry.name == name:
+                    return book_entry
+        return None
+
+    def get_book_entry(self, name, from_account_name):
+        """ Return the BookEntry for a given name and from_account_name """
+        for book_entry in self.books:
+            book_entry_from_account_name = None
+            if book_entry.from_account is not None:
+                book_entry_from_account_name = book_entry.from_account.name
+            if book_entry.name == name and book_entry_from_account_name == from_account_name:
+                return book_entry
+        return None
 
     def book_tax(self, amount, tax_type, name):
         """ Record all taxable events """
@@ -310,6 +336,7 @@ class Year():
 #------------------ BookEntry class
 
 class BookEntry():
+    # pylint: disable=too-few-public-methods
     """ Represents an entry in the books for all accounts changes """
     def __init__(self, account, amount, name, from_account):
         self.account = account
@@ -320,6 +347,7 @@ class BookEntry():
 #------------------ TaxBookEntry class
 
 class TaxBookEntry():
+    # pylint: disable=too-few-public-methods
     """ Represents an entry in the tax books for all taxable events """
     def __init__(self, amount, tax_type, name):
         self.amount = amount
@@ -332,12 +360,19 @@ class TaxBookEntry():
 class BasicBookEntryHelper():
     """ Determines a basic income or expense amount from configuration that remains constant and
     optionally applies to a certain year range """
-    def __init__(self, cfg):
+    def __init__(self, cfg, previous_book_entry):
         self.cfg = cfg
+        self.previous_book_entry = previous_book_entry
 
     def get_amount(self):
         """ Return the configured amount """
-        return self.cfg[CONFIG_INCOME_EXPENSE_AMOUNT] #TBD add support for inflation
+        if self.previous_book_entry is not None:
+            amount = self.previous_book_entry.amount
+            if CONFIG_INCOME_EXPENSE_INFLATION_ADJUST in self.cfg:
+                amount *= 1.02 # TDB Make configurable
+        else:
+            amount = self.cfg[CONFIG_INCOME_EXPENSE_AMOUNT]
+        return amount
 
     def get_tax_type(self):
         """ All income is reported as taxable income """
@@ -377,46 +412,85 @@ def config_load():
 
 #------------------ Output
 
-def output_years_html(years):
-    """ Generates HTML output summarizing the key calculations for each year """
-    with open('Results.html', "w") as outf:
-        outf.write("<HTML><BODY><TABLE>\n")
+class Output():
+    # pylint: disable=no-init
+    """ Manages output of the simulation data """
 
-        # Table header
-        year_for_header = Year(0) # sample to infer header
-        year_for_header.process(None) # sample run
-        outf.write("<TR>")
-        outf.write("<TH>Year</TH>")
-        outf.write("<TH>Net Worth</TH>")
-        for acct_name in year_for_header.accounts:
-            outf.write("<TH>Balance (Year End) %s</TH>" % acct_name)
-        for book_entry in year_for_header.books:
-            if book_entry.amount < 0:
-                column_header = "Expense"
-            else:
-                column_header = "Income"
-            column_header = "%s %s" % (column_header, book_entry.name)
-            if book_entry.from_account:
-                column_header = "%s (from %s)" % (column_header, book_entry.from_account.name)
-            outf.write("<TH>%s</TH>" % column_header)
-        outf.write("<TH>Total Income</TH>")
-        outf.write("<TH>Total Expenses</TH>")
-        outf.write("</TR>\n")
-
-        # Table rows
+    @staticmethod
+    def get_income_expense_types(years):
+        """ Get all the income and expense types we encountered throughout the years.
+        An income and expense type is represented by a tuple of:
+        - income/expense name
+        - the account name if the income/expense was generated by an account or None otherwise
+        For each income and expense type we store
+        - INCOME if the type was only used for income
+        - EXPENSE if the type was only used for expenses
+        - INCOME | EXPENSe if the type was used for both income and expenses """
+        income_expense_types = {}
         for year in years:
-            outf.write("<TR>")
-            outf.write("<TD>%d</TD>" % year.year)
-            outf.write("<TD>%.2f</TD>" % year.get_net_worth())
-            for account in year.accounts.values():
-                outf.write("<TD>%.2f</TD>" % account.balance)
             for book_entry in year.books:
-                outf.write("<TD>%.2f</TD>" % book_entry.amount)
-            outf.write("<TD>%.2f</TD>" % year.get_total_income())
-            outf.write("<TD>%.2f</TD>" % year.get_total_expenses())
+                if book_entry.amount > 0:
+                    book_entry_type = INCOME
+                else:
+                    book_entry_type = EXPENSE
+                account_name = None
+                if book_entry.from_account is not None:
+                    account_name = book_entry.from_account.name
+                if (book_entry.name, account_name) in income_expense_types:
+                    income_expense_types[(book_entry.name, account_name)] |= book_entry_type
+                else:
+                    income_expense_types[(book_entry.name, account_name)] = book_entry_type
+        # TBD better grouping of types
+        return income_expense_types
+
+    @staticmethod
+    def output_years_html(years):
+        """ Generates HTML output summarizing the key calculations for each year """
+        income_expense_types = Output.get_income_expense_types(years)
+        with open('Results.html', "w") as outf:
+            outf.write("<HTML><BODY><TABLE>\n")
+
+            # Table header
+            outf.write("<TR>")
+            outf.write("<TH>Year</TH>")
+            outf.write("<TH>Net Worth</TH>")
+            for acct_name in config[CONFIG_ACCTS]:
+                outf.write("<TH>Balance (Year End) %s</TH>" % acct_name)
+            for income_expense_type in income_expense_types:
+                if not ~income_expense_types[income_expense_type] & (INCOME|EXPENSE):
+                    column_header = "Income/Expense"
+                elif income_expense_types[income_expense_type] & EXPENSE:
+                    column_header = "Expense"
+                elif income_expense_types[income_expense_type] & INCOME:
+                    column_header = "Income"
+                else:
+                    assert False # TBD how to raise error if type not set right
+                column_header = "%s %s" % (column_header, income_expense_type[0])
+                if income_expense_type[1] is not None:
+                    column_header += " (from %s)" % income_expense_type[1]
+                outf.write("<TH>%s</TH>" % column_header)
+            outf.write("<TH>Total Income</TH>")
+            outf.write("<TH>Total Expenses</TH>")
             outf.write("</TR>\n")
 
-        outf.write("</TABLE></BODY></HTML>\n")
+            # Table rows
+            for year in years:
+                outf.write("<TR>")
+                outf.write("<TD>%d</TD>" % year.year)
+                outf.write("<TD>%.2f</TD>" % year.get_net_worth())
+                for acct_name in config[CONFIG_ACCTS]:
+                    outf.write("<TD>%.2f</TD>" % year.accounts[acct_name].balance)
+                for income_expense_type in income_expense_types:
+                    book_entry = year.get_book_entry(income_expense_type[0], income_expense_type[1])
+                    if book_entry is not None:
+                        outf.write("<TD>%.2f</TD>" % book_entry.amount)
+                    else:
+                        outf.write("<TD>-</TD>")
+                outf.write("<TD>%.2f</TD>" % year.get_total_income())
+                outf.write("<TD>%.2f</TD>" % year.get_total_expenses())
+                outf.write("</TR>\n")
+
+            outf.write("</TABLE></BODY></HTML>\n")
 
 #------------------ Main loop
 
@@ -426,11 +500,11 @@ def main():
 
     years = []
     previous = None
-    for year in range(2022, 2024):
+    for year in range(2022, 2026):
 
         # Instantiate new year, copying from previous
-        current = Year(year)
-        current.process(previous)
+        current = Year(year, previous)
+        current.process()
 
         # Store results of all years
         years.append(current)
@@ -439,6 +513,6 @@ def main():
             print 'Destitute on year {}'.format(year)
             break
 
-    output_years_html(years)
+    Output.output_years_html(years)
 
 main()

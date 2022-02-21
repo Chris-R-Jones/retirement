@@ -13,9 +13,9 @@
                            , "costBasis": 400000, "valuation": 500000, "valuationGrowthRate": 0.05
                            }
                 },
-    "incomeExpenses": [ { "type": "basic", "name": "Husband", "amount": 100000, "startYear": 2021, "endYear": 2025 }
+    "incomeExpenses": [ { "type": "basic", "name": "Husband", "amount": 100000, "startYear": 2021, "endYear": 2022 }
                      , { "type": "basic", "name": "Wife", "amount": 200000 , "startYear": 2023, "endYear": 2025 }
                      , { "type": "basic", "name": "Social Security", "amount" : 30000, "startAge" : 67 }
-                     , { "type": "basic", "name": "General Expenses", "amount" : -250000 }
+                     , { "type": "basic", "name": "General Expenses", "amount" : -250000, "inflationAdjust" : null }
                      ]					 
 }
