@@ -119,12 +119,29 @@ class Investment(Account):
                 taxable = -amount + (self.basis * amount) / self.balance
                 self.basis += (self.basis * amount) / self.balance
                 # Book capital gains incurred from sale
-                print 'Investment sale triggered capital gains of ${}'.format(taxable)
+                print 'Investment sale of ${} triggered capital gains of ${}' \
+                    .format(-amount, taxable)
                 self.year.book_tax(taxable, TAX_CAPITAL_GAINS, "Investment Gains")
             else:
                 self.basis += amount
 
         Account.deposit(self, amount, appreciation)
+
+    def transfer_to_plus_tax(self, account, amount, account_for_tax):
+        """ For positive amounts we take into account that selling investments will cause capital
+        gains taxes. We will sell more and transfer those additional funds into account_for_tax to
+        proactively cover the tax liability."""
+        if amount < 0:
+            # No tax implications
+            self.transfer_to(account, amount)
+        else:
+            pre_capital_gains_investment_amount = \
+                amount / \
+                (1 - (1 - self.basis / self.balance) * \
+                 self.year.get_capital_gains_tax_percentage())
+            self.deposit(-pre_capital_gains_investment_amount, False)
+            account.deposit(amount, False)
+            account_for_tax.deposit(pre_capital_gains_investment_amount - amount, False)
 
 #------------------ Mortgage class
 
@@ -252,6 +269,14 @@ class Year():
         """ Record all taxable events """
         self.tax_books.append(TaxBookEntry(amount, tax_type, name))
 
+    def get_capital_gains_tax_percentage(self):
+        """ Return capital gains tax percentage. """
+        # TBD Note for simplicity we assume this is a constant independent of other taxable
+        # events, which is not true. This needs refinement.
+        # This code needs to be shared with "tax" to ensure actual taxation will match exactly
+        # pylint: disable=no-self-use
+        return 0.34
+
     def tax(self, full):
         """ Calculate tax return and pay taxes """
         label = "Tax return"
@@ -318,7 +343,9 @@ class Year():
                     deficit = 0
                 elif deficit > 0 and account.balance > 0:
                     transfer = min(deficit, account.balance)
-                    account.transfer_to(unbalanced, transfer)
+                    # TBD For now this only supports balancing from the Investment account
+                    account.transfer_to_plus_tax(unbalanced, transfer,
+                                                 self.accounts[KEY_SAVINGS_ACCT])
                     deficit -= transfer
 
     def get_net_worth(self):
