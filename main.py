@@ -21,6 +21,7 @@ CONFIG_INCOME_EXPENSES = 'incomeExpenses'
 CONFIG_INCOME__EXPENSES_NAME = CONFIG_NAME
 CONFIG_INCOME_EXPENSE_AMOUNT = 'amount'
 CONFIG_INCOME_EXPENSE_INFLATION_ADJUST = 'inflationAdjust'
+CONFIG_INCOME_EXPENSE_INCREASE = 'increase'
 CONFIG_INCOME_START_AGE = 'startAge' # TBD keep this here or handle with startYear?
 CONFIG_INCOME_END_AGE = 'endAge' # TBD keep this here or handle with startYear?
 
@@ -395,8 +396,12 @@ class BasicBookEntryHelper():
         """ Return the configured amount """
         if self.previous_book_entry is not None:
             amount = self.previous_book_entry.amount
+            increase = 0
             if CONFIG_INCOME_EXPENSE_INFLATION_ADJUST in self.cfg:
-                amount *= 1.02 # TDB Make configurable
+                increase += 0.02 # TDB Make inflation rate configurable
+            if CONFIG_INCOME_EXPENSE_INCREASE in self.cfg:
+                increase += self.cfg[CONFIG_INCOME_EXPENSE_INCREASE]
+            amount *= 1 + increase
         else:
             amount = self.cfg[CONFIG_INCOME_EXPENSE_AMOUNT]
         return amount
