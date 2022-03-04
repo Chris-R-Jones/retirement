@@ -1,9 +1,10 @@
 {
-	"inflation": 0.04,
+	"inflation": 0.02,
     "capitalGainsTaxRate": 0.15,
     "federalIncomeTaxRate": 0.24,
     "stateIncomeTaxRate": 0.093,
     "realtorFeePercent": 0.06,
+	"retirementHusband": 2025,
     "accounts": { "Savings" : { "type": "basic", "balance": 30000, "targetBalance": 10000 }
                 , "Investment" : { "type": "investment", "balance": 500000, "returnRate": 0.10, "basis": 5000}
 				, "XHomeProposed" : { "type": "basic", "balance": 1000000, "returnRate": 0.05}
@@ -13,8 +14,8 @@
                            , "costBasis": 400000, "valuation": 500000, "valuationGrowthRate": 0.05
                            }
                 },
-    "incomeExpenses": [ { "type": "basic", "name": "Husband", "amount": 100000, "startYear": 2021, "endYear": 2022 }
-                     , { "type": "basic", "name": "Wife", "amount": 200000 , "startYear": 2023, "endYear": 2025 }
+    "incomeExpenses": [ { "type": "basic", "name": "Work Husband", "amount": 100000, "increase": 0.10, "startYear": 2021, "endYear": "retirementHusband-1" }
+                     , { "type": "basic", "name": "Work Wife", "amount": 200000 , "startYear": 2023, "endYear": 2025 }
                      , { "type": "basic", "name": "Social Security", "amount" : 30000, "startAge" : 67 }
                      , { "type": "basic", "name": "General Expenses", "amount" : -250000, "inflationAdjust" : null }
                      ]					 

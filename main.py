@@ -3,6 +3,7 @@
 """
 import json
 import copy
+import ast
 
 # Configuration keys
 CONFIG_INFLATION = 'inflation' # annual inflation percentage
@@ -62,25 +63,25 @@ class Account():
     def __init__(self, acct_name, cfg, year):
 
         # Validate account config
-        assert cfg[CONFIG_ACCT_BALANCE] is not None
+        assert Config.eval(cfg[CONFIG_ACCT_BALANCE]) is not None
         assert (CONFIG_ACCT_RETURN_RATE not in cfg
-                or cfg[CONFIG_ACCT_RETURN_RATE] >= 0.0
+                or Config.eval(cfg[CONFIG_ACCT_RETURN_RATE]) >= 0.0
                )
         assert (CONFIG_ACCT_TARGET_BALANCE not in cfg
-                or cfg[CONFIG_ACCT_TARGET_BALANCE] >= 0.0
+                or Config.eval(cfg[CONFIG_ACCT_TARGET_BALANCE]) >= 0.0
                )
 
         # Set initial state from config
         self.name = acct_name
         self.year = year
-        self.balance = cfg[CONFIG_ACCT_BALANCE]
+        self.balance = Config.eval(cfg[CONFIG_ACCT_BALANCE])
         if CONFIG_ACCT_TARGET_BALANCE in cfg:
-            self.target_balance = float(cfg[CONFIG_ACCT_TARGET_BALANCE])
+            self.target_balance = float(Config.eval(cfg[CONFIG_ACCT_TARGET_BALANCE]))
         else:
             self.target_balance = None
 
         if CONFIG_ACCT_RETURN_RATE in cfg:
-            self.return_rate = float(cfg[CONFIG_ACCT_RETURN_RATE])
+            self.return_rate = float(Config.eval(cfg[CONFIG_ACCT_RETURN_RATE]))
         else:
             self.return_rate = None
 
@@ -103,13 +104,23 @@ class Account():
             # TBD Better not to have a base implementation at all?
             self.year.book(self, self.balance * self.return_rate, "Gains", self, True)
 
+    @staticmethod
+    def create_account(name, cfg, year):
+        """ Poor man's account factory """
+        
+        typeMapping = { CONFIG_ACCOUNT_TYPE_BASIC : Account,
+                        CONFIG_ACCOUNT_TYPE_MORTGAGE : Mortgage,
+                        CONFIG_ACCOUNT_TYPE_INVESTMENT : Investment}
+        
+        return typeMapping[cfg[CONFIG_TYPE]](name, cfg, year) # TBD better error message for unsupported type
+
 #------------------ Investment class
 
 class Investment(Account):
     """ Investment account manages basis and tax consequences from sales. """
     def __init__(self, acct_name, cfg, year):
         Account.__init__(self, acct_name, cfg, year)
-        self.basis = cfg[CONFIG_INVESTMENT_BASIS]
+        self.basis = Config.eval(cfg[CONFIG_INVESTMENT_BASIS])
 
     def deposit(self, amount, appreciation):
         """ Non-appreciation withdrawl triggers partial basis reduction and capital gains.
@@ -151,8 +162,8 @@ class Mortgage(Account):
     reduction to balance. """
     def __init__(self, acct_name, cfg, year):
         Account.__init__(self, acct_name, cfg, year)
-        assert cfg[CONFIG_MORTGAGE_MONTHLY_PAYMENT] is not None
-        self.monthly_payment = float(cfg[CONFIG_MORTGAGE_MONTHLY_PAYMENT])
+        assert Config.eval(cfg[CONFIG_MORTGAGE_MONTHLY_PAYMENT]) is not None
+        self.monthly_payment = float(Config.eval(cfg[CONFIG_MORTGAGE_MONTHLY_PAYMENT]))
 
     def process_income_and_expenses(self):
         """ Pay the mortgage and reduce principal """
@@ -191,18 +202,11 @@ class Year():
 
     def init_accounts(self):
         """ Get accounts ready for the year """
+        # TBD Knowledge of account configuration should go under the Account class
         if not self.previous:
-            for acct_name in config[CONFIG_ACCTS]:
-                acct_cfg = config[CONFIG_ACCTS][acct_name]
-                # TBD Instantiate account from type to class name mapping
-                if acct_cfg[CONFIG_TYPE] == CONFIG_ACCOUNT_TYPE_BASIC:
-                    self.accounts[acct_name] = Account(acct_name, acct_cfg, self)
-                elif acct_cfg[CONFIG_TYPE] == CONFIG_ACCOUNT_TYPE_MORTGAGE:
-                    self.accounts[acct_name] = Mortgage(acct_name, acct_cfg, self)
-                elif acct_cfg[CONFIG_TYPE] == CONFIG_ACCOUNT_TYPE_INVESTMENT:
-                    self.accounts[acct_name] = Investment(acct_name, acct_cfg, self)
-                else:
-                    assert False # TBD how to raise error if account type not supported
+            for acct_name in Config.cfg[CONFIG_ACCTS]:
+                acct_cfg = Config.cfg[CONFIG_ACCTS][acct_name]
+                self.accounts[acct_name] = Account.create_account(acct_name, acct_cfg, self)
         else:
             self.accounts = copy.deepcopy(self.previous.accounts) # pylint tag?pylint: disable=unsubscriptable-object
             for account in self.accounts.values():
@@ -212,7 +216,7 @@ class Year():
         """ Create all income and expenses originating explicitly from configured entries or from
         accounts """
         # Start with income and expenses that are individually configured
-        for source in config[CONFIG_INCOME_EXPENSES]:
+        for source in Config.cfg[CONFIG_INCOME_EXPENSES]:
             previous_book_entry = self.get_previous_book_entry(source[CONFIG_NAME])
             if source[CONFIG_TYPE] == CONFIG_LINE_ITEM_TYPE_BASIC:
                 book_entry_helper = BasicBookEntryHelper(source, previous_book_entry)
@@ -318,7 +322,7 @@ class Year():
 
         # Find an account that doesn't match its target balance
         print 'Rebalance'
-        for unbal_name in config[CONFIG_ACCTS]:
+        for unbal_name in Config.cfg[CONFIG_ACCTS]:
             unbalanced = self.accounts[unbal_name]
 
             if unbalanced.target_balance is None or \
@@ -398,49 +402,75 @@ class BasicBookEntryHelper():
             amount = self.previous_book_entry.amount
             increase = 0
             if CONFIG_INCOME_EXPENSE_INFLATION_ADJUST in self.cfg:
-                increase += 0.02 # TDB Make inflation rate configurable
+                increase += Config.eval(Config.cfg[CONFIG_INFLATION])
             if CONFIG_INCOME_EXPENSE_INCREASE in self.cfg:
-                increase += self.cfg[CONFIG_INCOME_EXPENSE_INCREASE]
+                increase += Config.eval(self.cfg[CONFIG_INCOME_EXPENSE_INCREASE])
             amount *= 1 + increase
         else:
-            amount = self.cfg[CONFIG_INCOME_EXPENSE_AMOUNT]
+            amount = Config.eval(self.cfg[CONFIG_INCOME_EXPENSE_AMOUNT])
         return amount
 
     def get_tax_type(self):
         """ All income is reported as taxable income """
         tax_type = None
-        if self.cfg[CONFIG_INCOME_EXPENSE_AMOUNT] > 0:
+        if Config.eval(self.cfg[CONFIG_INCOME_EXPENSE_AMOUNT]) > 0:
             tax_type = TAX_INCOME
         return tax_type
 
     def filter(self, year):
-        """ Return False to filter out an entry.
-        Check if year is filtered out via configuration """
-        return ((CONFIG_START_YEAR not in self.cfg or self.cfg[CONFIG_START_YEAR] <= year) and
-                (CONFIG_END_YEAR not in self.cfg or self.cfg[CONFIG_END_YEAR] >= year)
+        """ Check if year is filtered out via configuration.
+        Return False to filter out an entry. """
+        return ((not CONFIG_START_YEAR in self.cfg or Config.eval(self.cfg[CONFIG_START_YEAR]) <= year) and
+                (not CONFIG_END_YEAR in self.cfg or Config.eval(self.cfg[CONFIG_END_YEAR]) >= year)
                )
 
-#------------------ Config
+#------------------ Config class
 
-def config_validate():
-    """ Reviews configuration settings for correctness """
-    assert config[CONFIG_INFLATION] >= 0 and config[CONFIG_INFLATION] <= 1
+class Config(ast.NodeTransformer):
+    """ Access and evaluate configuration """
+    cfg = None # global configuration data
+    
+    @staticmethod
+    def init():
+        """Loads user preferences from json configuration file"""
+        with open("Configuration.json", "r") as infile:
+            Config.cfg = json.load(infile)
+        Config.validate()
 
-    assert (config[CONFIG_INCOME_EXPENSES] is not None
-            and len(config[CONFIG_INCOME_EXPENSES]) > 0
-           )
-    for income in config[CONFIG_INCOME_EXPENSES]:
-        assert income[CONFIG_INCOME__EXPENSES_NAME] is not None
-        assert income[CONFIG_INCOME_EXPENSE_AMOUNT] is not None
+    @staticmethod
+    def validate():
+        """ Reviews configuration settings for correctness """
+        # TBD Need consistent validation and align with validations spread out in other areas
+        assert Config.eval(Config.cfg[CONFIG_INFLATION]) >= 0 and Config.eval(Config.cfg[CONFIG_INFLATION]) <= 1
 
-    assert config[CONFIG_ACCTS] is not None and len(config[CONFIG_ACCTS]) > 0
+        assert (Config.cfg[CONFIG_INCOME_EXPENSES] is not None
+                and len(Config.cfg[CONFIG_INCOME_EXPENSES]) > 0
+               )
+        for income in Config.cfg[CONFIG_INCOME_EXPENSES]:
+            assert income[CONFIG_INCOME__EXPENSES_NAME] is not None
+            assert Config.eval(income[CONFIG_INCOME_EXPENSE_AMOUNT]) is not None
 
-def config_load():
-    """Loads user preferences from json configuration file"""
-    with open("Configuration.json", "r") as infile:
-        global config
-        config = json.load(infile)
-    config_validate()
+        assert Config.cfg[CONFIG_ACCTS] is not None and len(Config.cfg[CONFIG_ACCTS]) > 0
+        
+    @staticmethod
+    def eval(expression):
+        """ Evaluate the expression resoving variables from global configuration as needed. """
+        tree = Config.parse(str(expression))
+        ast.fix_missing_locations(tree)
+        return eval(compile(tree, '', mode='eval'))
+        
+    @staticmethod
+    def parse(expression):
+        """ Returns the AST for the provided expression.
+        Any variables are resolved from configuration recursively. """
+        tree = ast.parse(expression, mode='eval')
+        # Walk tree to replace any variables with configuration value
+        return Config().visit(tree)
+
+    def visit_Name(self, node): 
+        """ Replace variables with configuration values """
+        tree = Config.parse(str(Config.cfg[node.id]))
+        return ast.copy_location(tree.body, node)
 
 #------------------ Output
 
@@ -486,7 +516,7 @@ class Output():
             outf.write("<TR>")
             outf.write("<TH>Year</TH>")
             outf.write("<TH>Net Worth</TH>")
-            for acct_name in config[CONFIG_ACCTS]:
+            for acct_name in Config.cfg[CONFIG_ACCTS]:
                 outf.write("<TH>Balance (Year End) %s</TH>" % acct_name)
             for income_expense_type in income_expense_types:
                 if not ~income_expense_types[income_expense_type] & (INCOME|EXPENSE):
@@ -510,7 +540,7 @@ class Output():
                 outf.write("<TR>")
                 outf.write("<TD>%d</TD>" % year.year)
                 outf.write("<TD>%.2f</TD>" % year.get_net_worth())
-                for acct_name in config[CONFIG_ACCTS]:
+                for acct_name in Config.cfg[CONFIG_ACCTS]:
                     outf.write("<TD>%.2f</TD>" % year.accounts[acct_name].balance)
                 for income_expense_type in income_expense_types:
                     book_entry = year.get_book_entry(income_expense_type[0], income_expense_type[1])
@@ -528,8 +558,7 @@ class Output():
 
 def main():
     """ Program main entry point """
-    config_load()
-
+    Config.init()
     years = []
     previous = None
     for year in range(2022, 2026):
@@ -546,5 +575,5 @@ def main():
             break
 
     Output.output_years_html(years)
-
+    
 main()
