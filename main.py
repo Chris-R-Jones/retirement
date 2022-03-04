@@ -1,12 +1,15 @@
 """ Theiding-Jones Retirement calculator
     Mostly to prove we could have retired several years ago
 """
-import json
-import copy
+import argparse
 import ast
+import copy
+import datetime
+import json
 
 # Configuration keys
 CONFIG_INFLATION = 'inflation' # annual inflation percentage
+CONFIG_BIRTH_YEAR = 'birthYear'
 
 CONFIG_START_YEAR = 'startYear'
 CONFIG_END_YEAR = 'endYear'
@@ -107,12 +110,13 @@ class Account():
     @staticmethod
     def create_account(name, cfg, year):
         """ Poor man's account factory """
-        
-        typeMapping = { CONFIG_ACCOUNT_TYPE_BASIC : Account,
+
+        type_mapping = {CONFIG_ACCOUNT_TYPE_BASIC : Account,
                         CONFIG_ACCOUNT_TYPE_MORTGAGE : Mortgage,
                         CONFIG_ACCOUNT_TYPE_INVESTMENT : Investment}
-        
-        return typeMapping[cfg[CONFIG_TYPE]](name, cfg, year) # TBD better error message for unsupported type
+
+        # TBD better error message for unsupported type
+        return type_mapping[cfg[CONFIG_TYPE]](name, cfg, year)
 
 #------------------ Investment class
 
@@ -420,7 +424,8 @@ class BasicBookEntryHelper():
     def filter(self, year):
         """ Check if year is filtered out via configuration.
         Return False to filter out an entry. """
-        return ((not CONFIG_START_YEAR in self.cfg or Config.eval(self.cfg[CONFIG_START_YEAR]) <= year) and
+        return ((not CONFIG_START_YEAR in self.cfg or
+                 Config.eval(self.cfg[CONFIG_START_YEAR]) <= year) and
                 (not CONFIG_END_YEAR in self.cfg or Config.eval(self.cfg[CONFIG_END_YEAR]) >= year)
                )
 
@@ -429,11 +434,11 @@ class BasicBookEntryHelper():
 class Config(ast.NodeTransformer):
     """ Access and evaluate configuration """
     cfg = None # global configuration data
-    
+
     @staticmethod
-    def init():
+    def init(config_file):
         """Loads user preferences from json configuration file"""
-        with open("Configuration.json", "r") as infile:
+        with open(config_file, "r") as infile:
             Config.cfg = json.load(infile)
         Config.validate()
 
@@ -441,7 +446,10 @@ class Config(ast.NodeTransformer):
     def validate():
         """ Reviews configuration settings for correctness """
         # TBD Need consistent validation and align with validations spread out in other areas
-        assert Config.eval(Config.cfg[CONFIG_INFLATION]) >= 0 and Config.eval(Config.cfg[CONFIG_INFLATION]) <= 1
+        assert Config.eval(Config.cfg[CONFIG_INFLATION]) >= 0 and \
+               Config.eval(Config.cfg[CONFIG_INFLATION]) <= 1
+        assert Config.eval(Config.cfg[CONFIG_BIRTH_YEAR]) >= 0 and \
+               Config.eval(Config.cfg[CONFIG_BIRTH_YEAR]) <= datetime.datetime.now().year
 
         assert (Config.cfg[CONFIG_INCOME_EXPENSES] is not None
                 and len(Config.cfg[CONFIG_INCOME_EXPENSES]) > 0
@@ -451,14 +459,14 @@ class Config(ast.NodeTransformer):
             assert Config.eval(income[CONFIG_INCOME_EXPENSE_AMOUNT]) is not None
 
         assert Config.cfg[CONFIG_ACCTS] is not None and len(Config.cfg[CONFIG_ACCTS]) > 0
-        
+
     @staticmethod
     def eval(expression):
         """ Evaluate the expression resoving variables from global configuration as needed. """
         tree = Config.parse(str(expression))
         ast.fix_missing_locations(tree)
-        return eval(compile(tree, '', mode='eval'))
-        
+        return eval(compile(tree, '', mode='eval')) # pylint: disable=eval-used
+
     @staticmethod
     def parse(expression):
         """ Returns the AST for the provided expression.
@@ -467,7 +475,7 @@ class Config(ast.NodeTransformer):
         # Walk tree to replace any variables with configuration value
         return Config().visit(tree)
 
-    def visit_Name(self, node): 
+    def visit_Name(self, node): # pylint: disable=invalid-name,no-self-use
         """ Replace variables with configuration values """
         tree = Config.parse(str(Config.cfg[node.id]))
         return ast.copy_location(tree.body, node)
@@ -558,10 +566,16 @@ class Output():
 
 def main():
     """ Program main entry point """
-    Config.init()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("-c", "--config", help="configuration file", default="Configuration.json")
+    parser.add_argument("-a", "--age", help="age when simulation ends", default=100)
+    args = parser.parse_args()
+
+    Config.init(args.config)
     years = []
     previous = None
-    for year in range(2022, 2026):
+    for year in range(datetime.datetime.now().year,
+                      Config.eval(Config.cfg[CONFIG_BIRTH_YEAR]) + int(args.age) + 1):
 
         # Instantiate new year, copying from previous
         current = Year(year, previous)
@@ -575,5 +589,5 @@ def main():
             break
 
     Output.output_years_html(years)
-    
+
 main()

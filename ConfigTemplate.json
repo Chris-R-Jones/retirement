@@ -5,6 +5,7 @@
     "stateIncomeTaxRate": 0.093,
     "realtorFeePercent": 0.06,
 	"retirementHusband": 2025,
+	"birthYear": 1970,
     "accounts": { "Savings" : { "type": "basic", "balance": 30000, "targetBalance": 10000 }
                 , "Investment" : { "type": "investment", "balance": 500000, "returnRate": 0.10, "basis": 5000}
 				, "XHomeProposed" : { "type": "basic", "balance": 1000000, "returnRate": 0.05}
