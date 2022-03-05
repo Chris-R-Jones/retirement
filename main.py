@@ -58,6 +58,10 @@ TAX_CAPITAL_GAINS = 'CapitalGains'
 INCOME = 1
 EXPENSE = 2
 
+OUTPUT_CELL_GENERAL = "<TD>{}</TD>"
+OUTPUT_CELL_GENERAL_RIGHT = "<TD style=\"text-align:right\">{}</TD>"
+OUTPUT_CELL_CURRENCY = "<TD style=\"text-align:right\">${:,.0f}</TD>"
+
 #------------------ Account class
 
 class Account():
@@ -252,7 +256,7 @@ class Year():
             expense_income = "Expense"
         from_account_str = ''
         if from_account is not None:
-            from_account_str = '(initiated by %s)' %from_account.name
+            from_account_str = '(initiated by {})'.format(from_account.name)
         print '{}: {} applied to {} for {} {}' \
             .format(expense_income, amount, account.name, name, from_account_str)
 
@@ -526,7 +530,7 @@ class Output():
             outf.write("<TH>Age</TH>")
             outf.write("<TH>Net Worth</TH>")
             for acct_name in Config.cfg[CONFIG_ACCTS]:
-                outf.write("<TH>Balance (Year End) %s</TH>" % acct_name)
+                outf.write("<TH>Balance (Year End) {}</TH>".format(acct_name))
             for income_expense_type in income_expense_types:
                 if not ~income_expense_types[income_expense_type] & (INCOME|EXPENSE):
                     column_header = "Income/Expense"
@@ -536,10 +540,10 @@ class Output():
                     column_header = "Income"
                 else:
                     assert False # TBD how to raise error if type not set right
-                column_header = "%s %s" % (column_header, income_expense_type[0])
+                column_header = "{} {}".format(column_header, income_expense_type[0])
                 if income_expense_type[1] is not None:
-                    column_header += " (from %s)" % income_expense_type[1]
-                outf.write("<TH>%s</TH>" % column_header)
+                    column_header += " (from {})".format(income_expense_type[1])
+                outf.write("<TH>{}</TH>".format(column_header))
             outf.write("<TH>Total Income</TH>")
             outf.write("<TH>Total Expenses</TH>")
             outf.write("</TR>\n")
@@ -547,19 +551,20 @@ class Output():
             # Table rows
             for year in years:
                 outf.write("<TR>")
-                outf.write("<TD>%d</TD>" % year.year)
-                outf.write("<TD>%d</TD>" % (year.year - Config.eval(Config.cfg[CONFIG_BIRTH_YEAR])))
-                outf.write("<TD>%.2f</TD>" % year.get_net_worth())
+                outf.write(OUTPUT_CELL_GENERAL.format(year.year))
+                outf.write(OUTPUT_CELL_GENERAL
+                           .format(year.year - Config.eval(Config.cfg[CONFIG_BIRTH_YEAR])))
+                outf.write(OUTPUT_CELL_CURRENCY.format(year.get_net_worth()))
                 for acct_name in Config.cfg[CONFIG_ACCTS]:
-                    outf.write("<TD>%.2f</TD>" % year.accounts[acct_name].balance)
+                    outf.write(OUTPUT_CELL_CURRENCY.format(year.accounts[acct_name].balance))
                 for income_expense_type in income_expense_types:
                     book_entry = year.get_book_entry(income_expense_type[0], income_expense_type[1])
                     if book_entry is not None:
-                        outf.write("<TD>%.2f</TD>" % book_entry.amount)
+                        outf.write(OUTPUT_CELL_CURRENCY.format(book_entry.amount))
                     else:
-                        outf.write("<TD>-</TD>")
-                outf.write("<TD>%.2f</TD>" % year.get_total_income())
-                outf.write("<TD>%.2f</TD>" % year.get_total_expenses())
+                        outf.write(OUTPUT_CELL_GENERAL_RIGHT.format("-"))
+                outf.write(OUTPUT_CELL_CURRENCY.format(year.get_total_income()))
+                outf.write(OUTPUT_CELL_CURRENCY.format(year.get_total_expenses()))
                 outf.write("</TR>\n")
 
             outf.write("</TABLE></BODY></HTML>\n")
