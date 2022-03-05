@@ -523,6 +523,7 @@ class Output():
             # Table header
             outf.write("<TR>")
             outf.write("<TH>Year</TH>")
+            outf.write("<TH>Age</TH>")
             outf.write("<TH>Net Worth</TH>")
             for acct_name in Config.cfg[CONFIG_ACCTS]:
                 outf.write("<TH>Balance (Year End) %s</TH>" % acct_name)
@@ -547,6 +548,7 @@ class Output():
             for year in years:
                 outf.write("<TR>")
                 outf.write("<TD>%d</TD>" % year.year)
+                outf.write("<TD>%d</TD>" % (year.year - Config.eval(Config.cfg[CONFIG_BIRTH_YEAR])))
                 outf.write("<TD>%.2f</TD>" % year.get_net_worth())
                 for acct_name in Config.cfg[CONFIG_ACCTS]:
                     outf.write("<TD>%.2f</TD>" % year.accounts[acct_name].balance)
