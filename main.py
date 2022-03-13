@@ -230,8 +230,8 @@ class Year():
                 book_entry_helper = BasicBookEntryHelper(source, previous_book_entry)
             else:
                 assert False # TBD how to raise error if income type not supported
-            if book_entry_helper.filter(self.year):
-                amount = book_entry_helper.get_amount()
+            if Config.filter(source, self.year):
+                amount = book_entry_helper.get_amount(self.year)
                 tax_type = book_entry_helper.get_tax_type()
                 self.book(None, amount, source[CONFIG_NAME], None)
                 if tax_type is not None:
@@ -404,7 +404,7 @@ class BasicBookEntryHelper():
         self.cfg = cfg
         self.previous_book_entry = previous_book_entry
 
-    def get_amount(self):
+    def get_amount(self, year):
         """ Return the configured amount """
         if self.previous_book_entry is not None:
             amount = self.previous_book_entry.amount
@@ -412,7 +412,10 @@ class BasicBookEntryHelper():
             if CONFIG_INCOME_EXPENSE_INFLATION_ADJUST in self.cfg:
                 increase += Config.eval(Config.cfg[CONFIG_INFLATION])
             if CONFIG_INCOME_EXPENSE_INCREASE in self.cfg:
-                increase += Config.eval(self.cfg[CONFIG_INCOME_EXPENSE_INCREASE])
+                income_expense_increase = \
+                    Config.eval_with_filter(self.cfg[CONFIG_INCOME_EXPENSE_INCREASE], year)
+                if income_expense_increase is not None:
+                    increase += income_expense_increase
             amount *= 1 + increase
         else:
             amount = Config.eval(self.cfg[CONFIG_INCOME_EXPENSE_AMOUNT])
@@ -424,14 +427,6 @@ class BasicBookEntryHelper():
         if Config.eval(self.cfg[CONFIG_INCOME_EXPENSE_AMOUNT]) > 0:
             tax_type = TAX_INCOME
         return tax_type
-
-    def filter(self, year):
-        """ Check if year is filtered out via configuration.
-        Return False to filter out an entry. """
-        return ((not CONFIG_START_YEAR in self.cfg or
-                 Config.eval(self.cfg[CONFIG_START_YEAR]) <= year) and
-                (not CONFIG_END_YEAR in self.cfg or Config.eval(self.cfg[CONFIG_END_YEAR]) >= year)
-               )
 
 #------------------ Config class
 
@@ -466,10 +461,22 @@ class Config(ast.NodeTransformer):
 
     @staticmethod
     def eval(expression):
-        """ Evaluate the expression resoving variables from global configuration as needed. """
+        """ Evaluate the expression resolving variables from global configuration as needed. """
         tree = Config.parse(str(expression))
         ast.fix_missing_locations(tree)
         return eval(compile(tree, '', mode='eval')) # pylint: disable=eval-used
+
+    @staticmethod
+    def eval_with_filter(attribute, year):
+        """ Evaluate the atttribute, which can have an optional filter """
+        if isinstance(attribute, list):
+            # Filter is configured - evaluate it first
+            if not Config.filter(attribute[1], year):
+                return None
+            expression = attribute[0]
+        else:
+            expression = attribute # No filter configured
+        return Config.eval(expression)
 
     @staticmethod
     def parse(expression):
@@ -483,6 +490,15 @@ class Config(ast.NodeTransformer):
         """ Replace variables with configuration values """
         tree = Config.parse(str(Config.cfg[node.id]))
         return ast.copy_location(tree.body, node)
+
+    @staticmethod
+    def filter(cfg, year):
+        """ Check if year is filtered out via configuration.
+        Return False to filter out an entry. """
+        return ((not CONFIG_START_YEAR in cfg or
+                 Config.eval(cfg[CONFIG_START_YEAR]) <= year) and
+                (not CONFIG_END_YEAR in cfg or Config.eval(cfg[CONFIG_END_YEAR]) >= year)
+               )
 
 #------------------ Output
 
