@@ -26,6 +26,7 @@ CONFIG_INCOME__EXPENSES_NAME = CONFIG_NAME
 CONFIG_INCOME_EXPENSE_AMOUNT = 'amount'
 CONFIG_INCOME_EXPENSE_INFLATION_ADJUST = 'inflationAdjust'
 CONFIG_INCOME_EXPENSE_INCREASE = 'increase'
+CONFIG_INCOME_EXPENSE_INCREASE_ABSOLUTE = 'absolute'
 CONFIG_INCOME_START_AGE = 'startAge' # TBD keep this here or handle with startYear?
 CONFIG_INCOME_END_AGE = 'endAge' # TBD keep this here or handle with startYear?
 
@@ -408,17 +409,21 @@ class BasicBookEntryHelper():
         """ Return the configured amount """
         if self.previous_book_entry is not None:
             amount = self.previous_book_entry.amount
-            increase = 0
-            if CONFIG_INCOME_EXPENSE_INFLATION_ADJUST in self.cfg:
-                increase += Config.eval(Config.cfg[CONFIG_INFLATION])
-            if CONFIG_INCOME_EXPENSE_INCREASE in self.cfg:
-                income_expense_increase = \
-                    Config.eval_with_filter(self.cfg[CONFIG_INCOME_EXPENSE_INCREASE], year)
-                if income_expense_increase is not None:
-                    increase += income_expense_increase
-            amount *= 1 + increase
         else:
             amount = Config.eval(self.cfg[CONFIG_INCOME_EXPENSE_AMOUNT])
+
+        increase_tuple = Config.eval_multi_value(CONFIG_INCOME_EXPENSE_INCREASE, self.cfg, year)
+        # Process percent increase
+        increase_percent = 0
+        if CONFIG_INCOME_EXPENSE_INFLATION_ADJUST in self.cfg:
+            increase_percent += Config.eval(Config.cfg[CONFIG_INFLATION])
+        for income_expense_increase_percent in increase_tuple[0]:
+            increase_percent += income_expense_increase_percent
+        amount *= 1 + increase_percent
+        # Process absolute increase
+        for income_expense_increase_absolute in increase_tuple[1]:
+            amount += income_expense_increase_absolute
+
         return amount
 
     def get_tax_type(self):
@@ -467,16 +472,34 @@ class Config(ast.NodeTransformer):
         return eval(compile(tree, '', mode='eval')) # pylint: disable=eval-used
 
     @staticmethod
-    def eval_with_filter(attribute, year):
-        """ Evaluate the atttribute, which can have an optional filter """
-        if isinstance(attribute, list):
-            # Filter is configured - evaluate it first
-            if not Config.filter(attribute[1], year):
-                return None
-            expression = attribute[0]
-        else:
-            expression = attribute # No filter configured
-        return Config.eval(expression)
+    def eval_multi_value(key, cfg, year):
+        """ Evaluate the key's value. Multiple values, each with an optional filter are supported.
+        Values can be percent or absolute values.
+        Values are returned as a tuple of a list of percent values and a list of absolute
+        values."""
+        values_percent = []
+        values_absolute = []
+
+        if key in cfg:
+            cfg_values = cfg[key]
+            # We allow just a single value (which is assumed to be a percentage)
+            # or a single list of value/config data.
+            # Convert these to the general case of a list value/config entries
+            if not isinstance(cfg_values, list):
+                # Single value without filter
+                cfg_values = [[cfg_values, {}]]
+            else:
+                if not isinstance(cfg_values[0], list):
+                    # Single entry with filter
+                    cfg_values = [cfg_values]
+            for entry in cfg_values:
+                if Config.filter(entry[1], year):
+                    if CONFIG_INCOME_EXPENSE_INCREASE_ABSOLUTE in entry[1]:
+                        values = values_absolute
+                    else:
+                        values = values_percent
+                    values.append(Config.eval(entry[0]))
+        return (values_percent, values_absolute)
 
     @staticmethod
     def parse(expression):
