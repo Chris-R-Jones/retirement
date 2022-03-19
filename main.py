@@ -59,9 +59,9 @@ TAX_CAPITAL_GAINS = 'CapitalGains'
 INCOME = 1
 EXPENSE = 2
 
-OUTPUT_CELL_GENERAL = "<TD>{}</TD>"
-OUTPUT_CELL_GENERAL_RIGHT = "<TD style=\"text-align:right\">{}</TD>"
-OUTPUT_CELL_CURRENCY = "<TD style=\"text-align:right\">${:,.0f}</TD>"
+OUTPUT_CELL = "<TD>{}</TD>"
+OUTPUT_CELL_RIGHT = "<TD style=\"text-align:right\">{}</TD>"
+OUTPUT_CURRENCY = "${:,.0f}"
 
 #------------------ Account class
 
@@ -561,6 +561,13 @@ class Output():
         """ Generates HTML output summarizing the key calculations for each year """
         income_expense_types = Output.get_income_expense_types(years)
         with open('Results.html', "w") as outf:
+            final_net_worth = years[-1].get_net_worth()
+            if final_net_worth < 0:
+                color = "red"
+            else:
+                color = "green"
+            outf.write("Final net worth: <FONT COLOR={}>{}</FONT>". \
+                format(color, OUTPUT_CURRENCY.format(final_net_worth)))
             outf.write("<HTML><BODY><TABLE>\n")
 
             # Table header
@@ -590,20 +597,25 @@ class Output():
             # Table rows
             for year in years:
                 outf.write("<TR>")
-                outf.write(OUTPUT_CELL_GENERAL.format(year.year))
-                outf.write(OUTPUT_CELL_GENERAL
-                           .format(year.year - Config.eval(Config.cfg[CONFIG_BIRTH_YEAR])))
-                outf.write(OUTPUT_CELL_CURRENCY.format(year.get_net_worth()))
+                outf.write(OUTPUT_CELL.format(year.year))
+                outf.write(OUTPUT_CELL.
+                           format(year.year - Config.eval(Config.cfg[CONFIG_BIRTH_YEAR])))
+                outf.write(OUTPUT_CELL_RIGHT.format(OUTPUT_CURRENCY.format(year.get_net_worth())))
                 for acct_name in Config.cfg[CONFIG_ACCTS]:
-                    outf.write(OUTPUT_CELL_CURRENCY.format(year.accounts[acct_name].balance))
+                    outf.write(OUTPUT_CELL_RIGHT.
+                               format(OUTPUT_CURRENCY.format(year.accounts[acct_name].balance)))
                 for income_expense_type in income_expense_types:
-                    book_entry = year.get_book_entry(income_expense_type[0], income_expense_type[1])
+                    book_entry = year.get_book_entry(income_expense_type[0]
+                                                     , income_expense_type[1])
                     if book_entry is not None:
-                        outf.write(OUTPUT_CELL_CURRENCY.format(book_entry.amount))
+                        outf.write(OUTPUT_CELL_RIGHT.
+                                   format(OUTPUT_CURRENCY.format(book_entry.amount)))
                     else:
-                        outf.write(OUTPUT_CELL_GENERAL_RIGHT.format("-"))
-                outf.write(OUTPUT_CELL_CURRENCY.format(year.get_total_income()))
-                outf.write(OUTPUT_CELL_CURRENCY.format(year.get_total_expenses()))
+                        outf.write(OUTPUT_CELL_RIGHT.format("-"))
+                outf.write(OUTPUT_CELL_RIGHT.
+                           format(OUTPUT_CURRENCY.format(year.get_total_income())))
+                outf.write(OUTPUT_CELL_RIGHT.
+                           format(OUTPUT_CURRENCY.format(year.get_total_expenses())))
                 outf.write("</TR>\n")
 
             outf.write("</TABLE></BODY></HTML>\n")
