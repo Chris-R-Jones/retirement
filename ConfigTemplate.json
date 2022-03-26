@@ -8,19 +8,19 @@
 	"birthYear": 1970,
     "accounts": { "Savings" : { "type": "basic", "balance": 30000, "targetBalance": 10000 }
                 , "Investment" : { "type": "investment", "balance": 500000, "returnRate": 0.10, "basis": 5000}
-				, "XHomeProposed" : { "type": "basic", "balance": 1000000, "returnRate": 0.05}
+				, "XHomeProposed" : { "type": "basic", "balance": 1000000, "returnRate": 0.05, "sell": 2028}
 				, "XMortgageProposed" : { "type": "mortgage", "balance": -500000, "monthlyPayment" : 2000}
                 , "Home" : { "type": "basic", "balance": 100.0, "returnRate": 0.05
                            , "mortgageRate": 0.03, "mortgagePayment": 421.60, "principal": 100000
                            , "costBasis": 400000, "valuation": 500000, "valuationGrowthRate": 0.05
                            }
                 },
-    "incomeExpenses": [ { "type": "basic", "name": "Work Husband", "amount": 100000, "increase": [0.10,{"startYear":2024, "endYear":2025}], "startYear": 2021, "endYear": "retirementHusband-1" }
+    "incomeExpenses": [ { "type": "basic", "name": "Work Husband", "amount": 100000, "increase": 0.10, "startYear": 2021, "endYear": "retirementHusband-1" }
                      , { "type": "basic", "name": "Work Wife", "amount": 200000 , "startYear": 2023, "endYear": 2025 }
                      , { "type": "basic", "name": "Social Security", "amount" : 30000, "startAge" : 67 }
                      , { "type": "basic", "name": "General Expenses", "amount": -190000
-							, "increase": [ [-0.01, {"startYear": 2036}]
-										  ,	[12000, {"startYear": 2030, "endYear": 2030, "absolute": null}]
+							, "increase": [ {"percent": -0.01, "startYear": 2036}
+										  ,	{"amount": 12000, "startYear": 2030, "endYear": 2030}
 										  ]
 							, "inflationAdjust": null }
                      ]					 

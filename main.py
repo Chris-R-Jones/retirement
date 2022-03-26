@@ -15,6 +15,8 @@ CONFIG_START_YEAR = 'startYear'
 CONFIG_END_YEAR = 'endYear'
 CONFIG_NAME = 'name'
 CONFIG_TYPE = 'type'
+CONFIG_AMOUNT = 'amount'
+CONFIG_PERCENT = 'percent'
 
 CONFIG_CAPITAL_GAINS_TAX_RATE = "capitalGainsTaxRate"
 CONFIG_FEDERAL_INCOME_TAX_RATE = "federalIncomeTaxRate"
@@ -26,7 +28,6 @@ CONFIG_INCOME__EXPENSES_NAME = CONFIG_NAME
 CONFIG_INCOME_EXPENSE_AMOUNT = 'amount'
 CONFIG_INCOME_EXPENSE_INFLATION_ADJUST = 'inflationAdjust'
 CONFIG_INCOME_EXPENSE_INCREASE = 'increase'
-CONFIG_INCOME_EXPENSE_INCREASE_ABSOLUTE = 'absolute'
 CONFIG_INCOME_START_AGE = 'startAge' # TBD keep this here or handle with startYear?
 CONFIG_INCOME_END_AGE = 'endAge' # TBD keep this here or handle with startYear?
 
@@ -34,6 +35,7 @@ CONFIG_ACCTS = 'accounts'
 CONFIG_ACCT_BALANCE = 'balance'
 CONFIG_ACCT_TARGET_BALANCE = 'targetBalance'
 CONFIG_ACCT_RETURN_RATE = 'returnRate'
+CONFIG_ACCT_SELL = 'sell'
 CONFIG_ACCT_MORTGAGE_RATE = 'mortgageRate'
 CONFIG_ACCT_MORTGAGE_PAYMENT = 'mortgagePayment'
 CONFIG_ACCT_PRINCIPAL = 'principal'
@@ -71,27 +73,21 @@ class Account():
     def __init__(self, acct_name, cfg, year):
 
         # Validate account config
-        assert Config.eval(cfg[CONFIG_ACCT_BALANCE]) is not None
+        assert Config.eval(CONFIG_ACCT_BALANCE, cfg) is not None
         assert (CONFIG_ACCT_RETURN_RATE not in cfg
-                or Config.eval(cfg[CONFIG_ACCT_RETURN_RATE]) >= 0.0
+                or Config.eval(CONFIG_ACCT_RETURN_RATE, cfg) >= 0.0
                )
         assert (CONFIG_ACCT_TARGET_BALANCE not in cfg
-                or Config.eval(cfg[CONFIG_ACCT_TARGET_BALANCE]) >= 0.0
+                or Config.eval(CONFIG_ACCT_TARGET_BALANCE, cfg) >= 0.0
                )
 
         # Set initial state from config
         self.name = acct_name
         self.year = year
-        self.balance = Config.eval(cfg[CONFIG_ACCT_BALANCE])
-        if CONFIG_ACCT_TARGET_BALANCE in cfg:
-            self.target_balance = float(Config.eval(cfg[CONFIG_ACCT_TARGET_BALANCE]))
-        else:
-            self.target_balance = None
-
-        if CONFIG_ACCT_RETURN_RATE in cfg:
-            self.return_rate = float(Config.eval(cfg[CONFIG_ACCT_RETURN_RATE]))
-        else:
-            self.return_rate = None
+        self.balance = Config.eval(CONFIG_ACCT_BALANCE, cfg)
+        self.return_rate = Config.eval(CONFIG_ACCT_RETURN_RATE, cfg)
+        self.target_balance = Config.eval(CONFIG_ACCT_TARGET_BALANCE, cfg)
+        self.sell_year = Config.eval(CONFIG_ACCT_SELL, cfg)
 
     # pylint: disable=unused-argument
     def deposit(self, amount, appreciation):
@@ -106,11 +102,20 @@ class Account():
         self.deposit(-amount, False)
         account.deposit(amount, False)
 
+    def process(self):
+        """ Check if it's time to sell account """
+        if self.sell_year == self.year.year:
+            self.sell()
+
     def process_income_and_expenses(self):
         """ Basic account books income from return rate if one is defined """
         if self.return_rate:
             # TBD Better not to have a base implementation at all?
             self.year.book(self, self.balance * self.return_rate, "Gains", self, True)
+
+    def sell(self):
+        """ Cash in the entire account """
+        self.transfer_to(self.year.get_savings_account(), self.balance)
 
     @staticmethod
     def create_account(name, cfg, year):
@@ -129,7 +134,7 @@ class Investment(Account):
     """ Investment account manages basis and tax consequences from sales. """
     def __init__(self, acct_name, cfg, year):
         Account.__init__(self, acct_name, cfg, year)
-        self.basis = Config.eval(cfg[CONFIG_INVESTMENT_BASIS])
+        self.basis = Config.eval(CONFIG_INVESTMENT_BASIS, cfg)
 
     def deposit(self, amount, appreciation):
         """ Non-appreciation withdrawl triggers partial basis reduction and capital gains.
@@ -171,8 +176,8 @@ class Mortgage(Account):
     reduction to balance. """
     def __init__(self, acct_name, cfg, year):
         Account.__init__(self, acct_name, cfg, year)
-        assert Config.eval(cfg[CONFIG_MORTGAGE_MONTHLY_PAYMENT]) is not None
-        self.monthly_payment = float(Config.eval(cfg[CONFIG_MORTGAGE_MONTHLY_PAYMENT]))
+        assert Config.eval(CONFIG_MORTGAGE_MONTHLY_PAYMENT, cfg) is not None
+        self.monthly_payment = Config.eval(CONFIG_MORTGAGE_MONTHLY_PAYMENT, cfg)
 
     def process_income_and_expenses(self):
         """ Pay the mortgage and reduce principal """
@@ -184,7 +189,7 @@ class Mortgage(Account):
         principal_reduction = 10000
         self.year.book(self, principal_reduction, "Mortgage Principal Reduction", self)
         # Mortgage payments over the year
-        self.year.book(None, -self.monthly_payment * 12, "Mortgage Payment", self)
+        self.year.book(None, self.monthly_payment * -12, "Mortgage Payment", self)
 
 #------------------ Year class
 
@@ -202,7 +207,12 @@ class Year():
     def process(self):
         """ Processes the year's results """
         print self.year
+
         self.init_accounts()
+        # Trigger account specific annual processing tasks
+        for account in self.accounts.values():
+            account.process()
+
         self.process_income_and_expenses()
         self.tax(True)
         self.rebalance_accounts()
@@ -220,6 +230,10 @@ class Year():
             self.accounts = copy.deepcopy(self.previous.accounts) # pylint tag?pylint: disable=unsubscriptable-object
             for account in self.accounts.values():
                 account.year = self
+
+    def get_savings_account(self):
+        """ Return the savings account """
+        return self.accounts[KEY_SAVINGS_ACCT]
 
     def process_income_and_expenses(self):
         """ Create all income and expenses originating explicitly from configured entries or from
@@ -246,7 +260,7 @@ class Year():
         """ Add transaction to books and transfer funds to account accordingly """
         if account is None:
             # If account not specified default to savings account
-            account = self.accounts[KEY_SAVINGS_ACCT]
+            account = self.get_savings_account()
         account.deposit(amount, appreciation)
         self.books.append(BookEntry(account, amount, name, from_account))
 
@@ -348,7 +362,7 @@ class Year():
                     continue
                 account = self.accounts[acct_name]
                 if account.balance == account.target_balance \
-                   or account.name == KEY_SAVINGS_ACCT:
+                   or account == self.get_savings_account():
                     continue
                 if account.target_balance == 0.0:
                     continue
@@ -359,7 +373,7 @@ class Year():
                     transfer = min(deficit, account.balance)
                     # TBD For now this only supports balancing from the Investment account
                     account.transfer_to_plus_tax(unbalanced, transfer,
-                                                 self.accounts[KEY_SAVINGS_ACCT])
+                                                 self.get_savings_account())
                     deficit -= transfer
 
     def get_net_worth(self):
@@ -410,13 +424,14 @@ class BasicBookEntryHelper():
         if self.previous_book_entry is not None:
             amount = self.previous_book_entry.amount
         else:
-            amount = Config.eval(self.cfg[CONFIG_INCOME_EXPENSE_AMOUNT])
+            amount = Config.eval(CONFIG_INCOME_EXPENSE_AMOUNT, self.cfg)
 
-        increase_tuple = Config.eval_multi_value(CONFIG_INCOME_EXPENSE_INCREASE, self.cfg, year)
+        increase_tuple = Config.eval_multi_value(CONFIG_INCOME_EXPENSE_INCREASE, self.cfg, year,
+                                                 True)
         # Process percent increase
         increase_percent = 0
         if CONFIG_INCOME_EXPENSE_INFLATION_ADJUST in self.cfg:
-            increase_percent += Config.eval(Config.cfg[CONFIG_INFLATION])
+            increase_percent += Config.eval(CONFIG_INFLATION, Config.cfg)
         for income_expense_increase_percent in increase_tuple[0]:
             increase_percent += income_expense_increase_percent
         amount *= 1 + increase_percent
@@ -429,7 +444,7 @@ class BasicBookEntryHelper():
     def get_tax_type(self):
         """ All income is reported as taxable income """
         tax_type = None
-        if Config.eval(self.cfg[CONFIG_INCOME_EXPENSE_AMOUNT]) > 0:
+        if Config.eval(CONFIG_INCOME_EXPENSE_AMOUNT, self.cfg) > 0:
             tax_type = TAX_INCOME
         return tax_type
 
@@ -450,55 +465,69 @@ class Config(ast.NodeTransformer):
     def validate():
         """ Reviews configuration settings for correctness """
         # TBD Need consistent validation and align with validations spread out in other areas
-        assert Config.eval(Config.cfg[CONFIG_INFLATION]) >= 0 and \
-               Config.eval(Config.cfg[CONFIG_INFLATION]) <= 1
-        assert Config.eval(Config.cfg[CONFIG_BIRTH_YEAR]) >= 0 and \
-               Config.eval(Config.cfg[CONFIG_BIRTH_YEAR]) <= datetime.datetime.now().year
+        assert Config.eval(CONFIG_INFLATION, Config.cfg) >= 0 and \
+               Config.eval(CONFIG_INFLATION, Config.cfg) <= 1
+        assert Config.eval(CONFIG_BIRTH_YEAR, Config.cfg) >= 0 and \
+               Config.eval(CONFIG_BIRTH_YEAR, Config.cfg) <= datetime.datetime.now().year
 
         assert (Config.cfg[CONFIG_INCOME_EXPENSES] is not None
                 and len(Config.cfg[CONFIG_INCOME_EXPENSES]) > 0
                )
         for income in Config.cfg[CONFIG_INCOME_EXPENSES]:
             assert income[CONFIG_INCOME__EXPENSES_NAME] is not None
-            assert Config.eval(income[CONFIG_INCOME_EXPENSE_AMOUNT]) is not None
+            assert Config.eval(CONFIG_INCOME_EXPENSE_AMOUNT, income) is not None
 
         assert Config.cfg[CONFIG_ACCTS] is not None and len(Config.cfg[CONFIG_ACCTS]) > 0
 
     @staticmethod
-    def eval(expression):
-        """ Evaluate the expression resolving variables from global configuration as needed. """
-        tree = Config.parse(str(expression))
-        ast.fix_missing_locations(tree)
-        return eval(compile(tree, '', mode='eval')) # pylint: disable=eval-used
+    def eval(key, cfg):
+        """ Evaluate the key's value, resolving variables from global configuration as needed. """
+        if key in cfg:
+            tree = Config.parse(str(cfg[key]))
+            ast.fix_missing_locations(tree)
+            return eval(compile(tree, '', mode='eval')) # pylint: disable=eval-used
+        return None
 
     @staticmethod
-    def eval_multi_value(key, cfg, year):
+    def eval_multi_value(key, cfg, year, single_arg_is_percent):
         """ Evaluate the key's value. Multiple values, each with an optional filter are supported.
         Values can be percent or absolute values.
         Values are returned as a tuple of a list of percent values and a list of absolute
-        values."""
+        values.
+        Values are configured as a list of dictionaries. For simplicity a single dictionary is
+        supported as well.
+        As a special case a single configurationvalue is also allowed. in that case the argument
+        single_arg_is_percent determines whether the value is returned as a percent or absolute
+        amount. """
         values_percent = []
         values_absolute = []
 
         if key in cfg:
             cfg_values = cfg[key]
-            # We allow just a single value (which is assumed to be a percentage)
-            # or a single list of value/config data.
-            # Convert these to the general case of a list value/config entries
+            # We allow just a single value or a single list of value/config data.
+            # Convert these to the general case of a list of dictionaries.
             if not isinstance(cfg_values, list):
-                # Single value without filter
-                cfg_values = [[cfg_values, {}]]
-            else:
-                if not isinstance(cfg_values[0], list):
-                    # Single entry with filter
-                    cfg_values = [cfg_values]
-            for entry in cfg_values:
-                if Config.filter(entry[1], year):
-                    if CONFIG_INCOME_EXPENSE_INCREASE_ABSOLUTE in entry[1]:
-                        values = values_absolute
+                if not isinstance(cfg_values, dict):
+                    # Single value
+                    if single_arg_is_percent:
+                        value_key = CONFIG_PERCENT
                     else:
+                        value_key = CONFIG_AMOUNT
+                    cfg_values = [{value_key : cfg_values}]
+                else:
+                    # Single dictionary
+                    cfg_values = [cfg_values]
+            for cfg_dict in cfg_values:
+                if Config.filter(cfg_dict, year):
+                    if CONFIG_AMOUNT in cfg_dict:
+                        values = values_absolute
+                        value_key = CONFIG_AMOUNT
+                    elif CONFIG_PERCENT in cfg_dict:
                         values = values_percent
-                    values.append(Config.eval(entry[0]))
+                        value_key = CONFIG_PERCENT
+                    else:
+                        assert False # TBD better error handling
+                    values.append(Config.eval(value_key, cfg_dict))
         return (values_percent, values_absolute)
 
     @staticmethod
@@ -518,9 +547,10 @@ class Config(ast.NodeTransformer):
     def filter(cfg, year):
         """ Check if year is filtered out via configuration.
         Return False to filter out an entry. """
-        return ((not CONFIG_START_YEAR in cfg or
-                 Config.eval(cfg[CONFIG_START_YEAR]) <= year) and
-                (not CONFIG_END_YEAR in cfg or Config.eval(cfg[CONFIG_END_YEAR]) >= year)
+        start_year = Config.eval(CONFIG_START_YEAR, cfg)
+        end_year = Config.eval(CONFIG_END_YEAR, cfg)
+        return ((start_year is None or start_year <= year) and
+                (end_year is None or end_year >= year)
                )
 
 #------------------ Output
@@ -599,7 +629,7 @@ class Output():
                 outf.write("<TR>")
                 outf.write(OUTPUT_CELL.format(year.year))
                 outf.write(OUTPUT_CELL.
-                           format(year.year - Config.eval(Config.cfg[CONFIG_BIRTH_YEAR])))
+                           format(year.year - Config.eval(CONFIG_BIRTH_YEAR, Config.cfg)))
                 outf.write(OUTPUT_CELL_RIGHT.format(OUTPUT_CURRENCY.format(year.get_net_worth())))
                 for acct_name in Config.cfg[CONFIG_ACCTS]:
                     outf.write(OUTPUT_CELL_RIGHT.
@@ -633,7 +663,7 @@ def main():
     years = []
     previous = None
     for year in range(datetime.datetime.now().year,
-                      Config.eval(Config.cfg[CONFIG_BIRTH_YEAR]) + int(args.age) + 1):
+                      Config.eval(CONFIG_BIRTH_YEAR, Config.cfg) + int(args.age) + 1):
 
         # Instantiate new year, copying from previous
         current = Year(year, previous)
