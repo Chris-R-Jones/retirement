@@ -13,6 +13,7 @@
                 , "Home" : { "type": "basic", "balance": 100.0, "returnRate": 0.05
                            , "mortgageRate": 0.03, "mortgagePayment": 421.60, "principal": 100000
                            , "costBasis": 400000, "valuation": 500000, "valuationGrowthRate": 0.05
+						   , "incomeExpenses": {"name": "Repairs", "amount": -10000, "inflationAdjust": null}						   
                            }
                 },
     "incomeExpenses": [ { "type": "basic", "name": "Work Husband", "amount": 100000, "increase": 0.10, "startYear": 2021, "endYear": "retirementHusband-1" }

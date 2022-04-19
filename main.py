@@ -58,8 +58,10 @@ KEY_SAVINGS_ACCT = "Savings"
 TAX_INCOME = 'Income'
 TAX_CAPITAL_GAINS = 'CapitalGains'
 
-INCOME = 1
-EXPENSE = 2
+# Types of income and expenses
+INCOME_EXPENSE_TYPE_INCOME = 1
+INCOME_EXPENSE_TYPE_EXPENSE = 2
+INCOME_EXPENSE_TYPE_ZERO = 4
 
 OUTPUT_CELL = "<TD>{}</TD>"
 OUTPUT_CELL_RIGHT = "<TD style=\"text-align:right\">{}</TD>"
@@ -84,10 +86,12 @@ class Account():
         # Set initial state from config
         self.name = acct_name
         self.year = year
+        self.sold = False
         self.balance = Config.eval(CONFIG_ACCT_BALANCE, cfg)
         self.return_rate = Config.eval(CONFIG_ACCT_RETURN_RATE, cfg)
         self.target_balance = Config.eval(CONFIG_ACCT_TARGET_BALANCE, cfg)
         self.sell_year = Config.eval(CONFIG_ACCT_SELL, cfg)
+        self.income_expenses_cfg = cfg.get(CONFIG_INCOME_EXPENSES)
 
     # pylint: disable=unused-argument
     def deposit(self, amount, appreciation):
@@ -112,10 +116,14 @@ class Account():
         if self.return_rate:
             # TBD Better not to have a base implementation at all?
             self.year.book(self, self.balance * self.return_rate, "Gains", self, True)
+        if self.income_expenses_cfg is not None and not self.sold:
+            book_entry_helper = BasicBookEntryHelper(self.income_expenses_cfg, self.year, self)
+            book_entry_helper.book()
 
     def sell(self):
         """ Cash in the entire account """
         self.transfer_to(self.year.get_savings_account(), self.balance)
+        self.sold = True
 
     @staticmethod
     def create_account(name, cfg, year):
@@ -239,18 +247,12 @@ class Year():
         """ Create all income and expenses originating explicitly from configured entries or from
         accounts """
         # Start with income and expenses that are individually configured
-        for source in Config.cfg[CONFIG_INCOME_EXPENSES]:
-            previous_book_entry = self.get_previous_book_entry(source[CONFIG_NAME])
-            if source[CONFIG_TYPE] == CONFIG_LINE_ITEM_TYPE_BASIC:
-                book_entry_helper = BasicBookEntryHelper(source, previous_book_entry)
+        for cfg in Config.cfg[CONFIG_INCOME_EXPENSES]:
+            if cfg[CONFIG_TYPE] == CONFIG_LINE_ITEM_TYPE_BASIC:
+                book_entry_helper = BasicBookEntryHelper(cfg, self, None)
             else:
                 assert False # TBD how to raise error if income type not supported
-            if Config.filter(source, self.year):
-                amount = book_entry_helper.get_amount(self.year)
-                tax_type = book_entry_helper.get_tax_type()
-                self.book(None, amount, source[CONFIG_NAME], None)
-                if tax_type is not None:
-                    self.book_tax(amount, tax_type, source[CONFIG_NAME])
+            book_entry_helper.book()
         # Add more income and expenses that originate from accounts
         for account in self.accounts.values():
             account.process_income_and_expenses()
@@ -274,14 +276,6 @@ class Year():
             from_account_str = '(initiated by {})'.format(from_account.name)
         print '{}: {} applied to {} for {} {}' \
             .format(expense_income, amount, account.name, name, from_account_str)
-
-    def get_previous_book_entry(self, name):
-        """ Return the BookEntry from the previous year """
-        if self.previous is not None:
-            for book_entry in self.previous.books:
-                if book_entry.name == name:
-                    return book_entry
-        return None
 
     def get_book_entry(self, name, from_account_name):
         """ Return the BookEntry for a given name and from_account_name """
@@ -413,21 +407,29 @@ class TaxBookEntry():
 #------------------ BasicBookEntryHelper class
 
 class BasicBookEntryHelper():
-    """ Determines a basic income or expense amount from configuration that remains constant and
-    optionally applies to a certain year range """
-    def __init__(self, cfg, previous_book_entry):
+    """ Determines a basic income or expense amount from configuration that optionally applies to
+    a certain year range. Amount can optionally be adjusted with increases and inflation. """
+    def __init__(self, cfg, year, from_account):
         self.cfg = cfg
-        self.previous_book_entry = previous_book_entry
+        self.year = year
+        self.from_account = from_account
 
-    def get_amount(self, year):
-        """ Return the configured amount """
-        if self.previous_book_entry is not None:
-            amount = self.previous_book_entry.amount
-        else:
+    def get_amount(self):
+        """ Return the configured amount as it evolves through the years """
+        amount = None
+        if self.year.previous is not None:
+            from_account_name = None
+            if self.from_account is not None:
+                from_account_name = self.from_account.name
+            previous_book_entry = self.year.previous.get_book_entry(self.cfg[CONFIG_NAME],
+                                                                    from_account_name)
+            if previous_book_entry is not None:
+                amount = previous_book_entry.amount
+        if amount is None:
             amount = Config.eval(CONFIG_INCOME_EXPENSE_AMOUNT, self.cfg)
 
-        increase_tuple = Config.eval_multi_value(CONFIG_INCOME_EXPENSE_INCREASE, self.cfg, year,
-                                                 True)
+        increase_tuple = Config.eval_multi_value(CONFIG_INCOME_EXPENSE_INCREASE, self.cfg,
+                                                 self.year.year, True)
         # Process percent increase
         increase_percent = 0
         if CONFIG_INCOME_EXPENSE_INFLATION_ADJUST in self.cfg:
@@ -447,6 +449,15 @@ class BasicBookEntryHelper():
         if Config.eval(CONFIG_INCOME_EXPENSE_AMOUNT, self.cfg) > 0:
             tax_type = TAX_INCOME
         return tax_type
+
+    def book(self):
+        """ Make booking as configured """
+        if Config.filter(self.cfg, self.year.year):
+            amount = self.get_amount()
+            tax_type = self.get_tax_type()
+            self.year.book(None, amount, self.cfg[CONFIG_NAME], self.from_account)
+            if tax_type is not None:
+                self.year.book_tax(amount, tax_type, self.cfg[CONFIG_NAME])
 
 #------------------ Config class
 
@@ -566,16 +577,21 @@ class Output():
         - income/expense name
         - the account name if the income/expense was generated by an account or None otherwise
         For each income and expense type we store
-        - INCOME if the type was only used for income
-        - EXPENSE if the type was only used for expenses
-        - INCOME | EXPENSe if the type was used for both income and expenses """
+        - INCOME_EXPENSE_TYPE_INCOME if the type was only used for income
+        - INCOME_EXPENSE_TYPE_EXPENSE if the type was only used for expenses
+        - INCOME_EXPENSE_TYPE_INCOME | INCOME_EXPENSE_TYPE_EXPENSE if the type was used for both
+          income and expenses
+        When an amount is zero we store INCOME_EXPENSE_TYPE_ZERO so we register the type, but can't
+        tell whether it's an income or expense."""
         income_expense_types = {}
         for year in years:
             for book_entry in year.books:
                 if book_entry.amount > 0:
-                    book_entry_type = INCOME
+                    book_entry_type = INCOME_EXPENSE_TYPE_INCOME
+                elif book_entry.amount < 0:
+                    book_entry_type = INCOME_EXPENSE_TYPE_EXPENSE
                 else:
-                    book_entry_type = EXPENSE
+                    book_entry_type = INCOME_EXPENSE_TYPE_ZERO
                 account_name = None
                 if book_entry.from_account is not None:
                     account_name = book_entry.from_account.name
@@ -608,11 +624,16 @@ class Output():
             for acct_name in Config.cfg[CONFIG_ACCTS]:
                 outf.write("<TH>Balance (Year End) {}</TH>".format(acct_name))
             for income_expense_type in income_expense_types:
-                if not ~income_expense_types[income_expense_type] & (INCOME|EXPENSE):
+                if not ~income_expense_types[income_expense_type] \
+                    & (INCOME_EXPENSE_TYPE_INCOME|INCOME_EXPENSE_TYPE_EXPENSE) \
+                    or not income_expense_types[income_expense_type] \
+                    & (INCOME_EXPENSE_TYPE_INCOME|INCOME_EXPENSE_TYPE_EXPENSE):
+                    # We detected both income and expenses or neither and therefore don't know
+                    # which one to display
                     column_header = "Income/Expense"
-                elif income_expense_types[income_expense_type] & EXPENSE:
+                elif income_expense_types[income_expense_type] & INCOME_EXPENSE_TYPE_EXPENSE:
                     column_header = "Expense"
-                elif income_expense_types[income_expense_type] & INCOME:
+                elif income_expense_types[income_expense_type] & INCOME_EXPENSE_TYPE_INCOME:
                     column_header = "Income"
                 else:
                     assert False # TBD how to raise error if type not set right
